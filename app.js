@@ -1,4 +1,9 @@
-class BikeAccidentDetector {
+/**
+ * MADS - Mobile Accident Detection System
+ * Uses CallMeBot for automatic WhatsApp alerts
+ */
+
+class MADS {
     constructor() {
         this.isActive = false;
         this.isDetecting = false;
@@ -12,10 +17,15 @@ class BikeAccidentDetector {
         this.settings = {
             enableSound: true,
             enableVibration: true,
-            autoSms: true
+            notificationMethod: 'whatsapp'
         };
-        this.smsQueue = [];
-        this.isSendingSms = false;
+        
+        // CallMeBot configuration
+        this.callmebot = {
+            apiKey: localStorage.getItem('mads_callmebot_apikey') || '',
+            phoneNumber: localStorage.getItem('mads_callmebot_phone') || '',
+            isConfigured: false
+        };
         
         this.init();
     }
@@ -24,35 +34,209 @@ class BikeAccidentDetector {
         this.setupPWA();
         this.loadData();
         this.setupEventListeners();
-        this.checkNativeAndroid();
         await this.requestPermissions();
-        this.setupSMSGateway();
-        this.updateStatus();
+        this.checkCallMeBotConfig();
+        this.updateUI();
+        console.log('MADS initialized - Mobile Accident Detection System');
     }
     
-    setupSMSGateway() {
-        // Check if we're in a native Android WebView
-        if (typeof Android !== 'undefined' && Android !== null) {
-            console.log('Native Android SMS available');
+    checkCallMeBotConfig() {
+        this.callmebot.isConfigured = !!(this.callmebot.apiKey && this.callmebot.phoneNumber);
+        
+        const whatsappStatus = document.getElementById('whatsapp-status');
+        if (whatsappStatus) {
+            if (this.callmebot.isConfigured) {
+                whatsappStatus.innerHTML = '<i class="fab fa-whatsapp" style="color: #25D366;"></i> WhatsApp: Ready';
+                whatsappStatus.style.color = '#25D366';
+                
+                // Remove setup button if exists
+                const setupBtn = document.getElementById('whatsapp-setup-btn');
+                if (setupBtn) setupBtn.remove();
+            } else {
+                whatsappStatus.innerHTML = '<i class="fab fa-whatsapp"></i> WhatsApp: Setup needed';
+                whatsappStatus.style.color = 'var(--warning)';
+                this.showWhatsAppSetupPrompt();
+            }
+        }
+    }
+    
+    showWhatsAppSetupPrompt() {
+        // Remove existing button if any
+        const existingBtn = document.getElementById('whatsapp-setup-btn');
+        if (existingBtn) existingBtn.remove();
+        
+        const setupBtn = document.createElement('button');
+        setupBtn.id = 'whatsapp-setup-btn';
+        setupBtn.className = 'btn btn-secondary';
+        setupBtn.innerHTML = '<i class="fab fa-whatsapp"></i> Setup WhatsApp Alerts';
+        setupBtn.onclick = () => this.showWhatsAppSetupModal();
+        
+        // Find a good place to insert the button
+        const contactsCard = document.querySelector('.card:has(.contacts-list)');
+        if (contactsCard) {
+            contactsCard.parentNode.insertBefore(setupBtn, contactsCard.nextSibling);
+        }
+    }
+    
+    showWhatsAppSetupModal() {
+        // Remove any existing modal
+        const existingModal = document.getElementById('whatsapp-setup-modal');
+        if (existingModal) existingModal.remove();
+        
+        const modal = document.createElement('div');
+        modal.className = 'overlay';
+        modal.id = 'whatsapp-setup-modal';
+        modal.style.display = 'flex';
+        
+        modal.innerHTML = `
+            <div class="modal whatsapp-setup-modal">
+                <div class="modal-header">
+                    <i class="fab fa-whatsapp" style="color: #25D366; font-size: 2rem;"></i>
+                    <h2>Setup WhatsApp Alerts</h2>
+                    <p class="subtitle">MADS - Mobile Accident Detection System</p>
+                </div>
+                
+                <div class="setup-steps">
+                    <div class="step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h4>Save CallMeBot Number</h4>
+                            <p>Add this number to your phone contacts:</p>
+                            <div class="info-box">
+                                <code>+34 644 51 95 23</code>
+                                <button class="copy-btn" onclick="navigator.clipboard.writeText('+34644519523'); this.innerHTML='<i class=\\'fas fa-check\\'></i> Copied!'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i> Copy', 2000)">
+                                    <i class="fas fa-copy"></i> Copy
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h4>Send Activation Message</h4>
+                            <p>Open WhatsApp and send this exact message:</p>
+                            <div class="info-box">
+                                <code>"I allow callmebot to send me messages"</code>
+                                <button class="copy-btn" onclick="navigator.clipboard.writeText('I allow callmebot to send me messages'); this.innerHTML='<i class=\\'fas fa-check\\'></i> Copied!'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i> Copy', 2000)">
+                                    <i class="fas fa-copy"></i> Copy
+                                </button>
+                            </div>
+                            <button class="btn btn-primary" style="margin-top: 10px;" onclick="window.open('https://wa.me/34644519523?text=' + encodeURIComponent('I allow callmebot to send me messages'))">
+                                <i class="fab fa-whatsapp"></i> Open WhatsApp
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h4>Enter Your Details</h4>
+                            <p>You'll receive an API key from CallMeBot. Enter it below:</p>
+                            
+                            <div class="input-group">
+                                <label for="callmebot-phone">Your WhatsApp Number</label>
+                                <input type="tel" id="callmebot-phone" placeholder="e.g., 5511999999999" value="${this.callmebot.phoneNumber}">
+                                <small>Include country code without + or spaces (e.g., 1 for USA, 44 for UK)</small>
+                            </div>
+                            
+                            <div class="input-group">
+                                <label for="callmebot-apikey">CallMeBot API Key</label>
+                                <input type="text" id="callmebot-apikey" placeholder="e.g., 123456" value="${this.callmebot.apiKey}">
+                                <small>The number you received from CallMeBot</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="test-section">
+                    <button class="btn btn-test" onclick="mads.testWhatsApp()">
+                        <i class="fas fa-vial"></i> Test WhatsApp Setup
+                    </button>
+                </div>
+                
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="document.getElementById('whatsapp-setup-modal').remove()">
+                        Cancel
+                    </button>
+                    <button class="btn btn-primary" onclick="mads.saveWhatsAppConfig()">
+                        <i class="fas fa-save"></i> Save Configuration
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+    }
+    
+    async testWhatsApp() {
+        const phone = document.getElementById('callmebot-phone')?.value.trim();
+        const apiKey = document.getElementById('callmebot-apikey')?.value.trim();
+        
+        if (!phone || !apiKey) {
+            this.showToast('Please enter your phone number and API key first', 'warning');
             return;
         }
         
-        // Check if SMS Gateway API is configured
-        this.smsGateway = {
-            type: localStorage.getItem('smsGatewayType') || 'none',
-            url: localStorage.getItem('smsGatewayUrl') || '',
-            apiKey: localStorage.getItem('smsGatewayApiKey') || ''
-        };
+        const testMessage = `🔧 MADS Test Message\n\nYour WhatsApp setup is working! You'll receive emergency alerts here when accidents are detected.`;
+        const encodedMessage = encodeURIComponent(testMessage);
+        const url = `https://api.callmebot.com/whatsapp.php?phone=${phone}&text=${encodedMessage}&apikey=${apiKey}`;
+        
+        try {
+            this.showToast('Sending test message...', 'info');
+            const response = await fetch(url);
+            const text = await response.text();
+            
+            if (response.status === 200 && text.includes('Message sent')) {
+                this.showToast('✅ Test message sent! Check your WhatsApp', 'success');
+            } else {
+                this.showToast('❌ Test failed. Check your API key and phone number', 'error');
+            }
+        } catch (error) {
+            this.showToast('❌ Network error. Please try again', 'error');
+        }
     }
     
-    checkNativeAndroid() {
-        if (typeof Android !== 'undefined' && Android !== null) {
-            console.log('Running as native Android app');
-            this.isNativeAndroid = true;
-        } else {
-            console.log('Running as web app');
-            this.isNativeAndroid = false;
+    saveWhatsAppConfig() {
+        const phone = document.getElementById('callmebot-phone')?.value.trim();
+        const apiKey = document.getElementById('callmebot-apikey')?.value.trim();
+        
+        if (!phone || !apiKey) {
+            this.showToast('Please enter both phone number and API key', 'error');
+            return;
         }
+        
+        // Clean phone number (remove all non-digits)
+        const cleanPhone = phone.replace(/\D/g, '');
+        
+        if (cleanPhone.length < 10) {
+            this.showToast('Please enter a valid phone number with country code', 'error');
+            return;
+        }
+        
+        this.callmebot.phoneNumber = cleanPhone;
+        this.callmebot.apiKey = apiKey;
+        this.callmebot.isConfigured = true;
+        
+        // Save to localStorage
+        localStorage.setItem('mads_callmebot_phone', cleanPhone);
+        localStorage.setItem('mads_callmebot_apikey', apiKey);
+        
+        // Remove modal
+        document.getElementById('whatsapp-setup-modal')?.remove();
+        
+        // Update UI
+        this.checkCallMeBotConfig();
+        this.showToast('✅ WhatsApp configured successfully!', 'success');
+        
+        // Send confirmation message
+        this.sendTestConfirmation();
+    }
+    
+    async sendTestConfirmation() {
+        const message = `✅ *MADS Setup Complete* ✅\n\nMobile Accident Detection System is now configured to send alerts to this WhatsApp number.\n\nYou will be notified immediately if an accident is detected. Stay safe! 🚲`;
+        
+        await this.sendWhatsAppMessage(this.contacts[0]?.name || 'User', message);
     }
     
     setupPWA() {
@@ -62,57 +246,58 @@ class BikeAccidentDetector {
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             deferredPrompt = e;
-            installBtn.style.display = 'flex';
-            
+            if (installBtn) installBtn.style.display = 'flex';
+        });
+        
+        if (installBtn) {
             installBtn.addEventListener('click', async () => {
                 if (!deferredPrompt) return;
-                
                 deferredPrompt.prompt();
                 const { outcome } = await deferredPrompt.userChoice;
-                
                 if (outcome === 'accepted') {
                     installBtn.style.display = 'none';
                 }
-                
                 deferredPrompt = null;
             });
-        });
+        }
         
         window.addEventListener('appinstalled', () => {
-            installBtn.style.display = 'none';
+            if (installBtn) installBtn.style.display = 'none';
             deferredPrompt = null;
         });
     }
     
     setupEventListeners() {
-        document.getElementById('toggle-system').addEventListener('click', () => this.toggleSystem());
-        document.getElementById('test-alert').addEventListener('click', () => this.testAlert());
-        document.getElementById('add-contact').addEventListener('click', () => this.showContactModal());
-        document.getElementById('cancel-contact').addEventListener('click', () => this.hideContactModal());
-        document.getElementById('save-contact').addEventListener('click', () => this.saveContact());
-        document.getElementById('cancel-alert').addEventListener('click', () => this.cancelAlert());
-        document.getElementById('send-now').addEventListener('click', () => this.sendEmergencyAlert());
+        document.getElementById('toggle-system')?.addEventListener('click', () => this.toggleSystem());
+        document.getElementById('test-alert')?.addEventListener('click', () => this.testAlert());
         
-        document.getElementById('threshold').addEventListener('input', (e) => this.updateThreshold(e.target.value));
-        document.getElementById('countdown-time').addEventListener('change', (e) => {
+        document.getElementById('add-contact')?.addEventListener('click', () => this.showContactModal());
+        document.getElementById('cancel-contact')?.addEventListener('click', () => this.hideContactModal());
+        document.getElementById('save-contact')?.addEventListener('click', () => this.saveContact());
+        
+        document.getElementById('cancel-alert')?.addEventListener('click', () => this.cancelAlert());
+        document.getElementById('send-now')?.addEventListener('click', () => this.sendEmergencyAlert());
+        
+        document.getElementById('threshold')?.addEventListener('input', (e) => this.updateThreshold(e.target.value));
+        document.getElementById('countdown-time')?.addEventListener('change', (e) => {
             this.countdownTime = parseInt(e.target.value);
             this.saveSettings();
         });
-        document.getElementById('enable-sound').addEventListener('change', (e) => {
+        document.getElementById('enable-sound')?.addEventListener('change', (e) => {
             this.settings.enableSound = e.target.checked;
             this.saveSettings();
         });
-        document.getElementById('enable-vibration').addEventListener('change', (e) => {
+        document.getElementById('enable-vibration')?.addEventListener('change', (e) => {
             this.settings.enableVibration = e.target.checked;
             this.saveSettings();
         });
         
-        const autoSmsCheckbox = document.getElementById('auto-sms');
-        if (autoSmsCheckbox) {
-            autoSmsCheckbox.addEventListener('change', (e) => {
-                this.settings.autoSms = e.target.checked;
+        const methodSelect = document.getElementById('notification-method');
+        if (methodSelect) {
+            methodSelect.value = this.settings.notificationMethod;
+            methodSelect.addEventListener('change', (e) => {
+                this.settings.notificationMethod = e.target.value;
                 this.saveSettings();
-                this.showToast(`Auto-SMS ${e.target.checked ? 'enabled' : 'disabled'}`);
             });
         }
         
@@ -149,7 +334,7 @@ class BikeAccidentDetector {
             }
             
         } catch (error) {
-            console.error('Permission request failed:', error);
+            console.error('MADS: Permission request failed', error);
         }
     }
     
@@ -174,13 +359,11 @@ class BikeAccidentDetector {
                         longitude: position.coords.longitude,
                         accuracy: position.coords.accuracy
                     };
-                    document.getElementById('gps-status').textContent = 'GPS: Active';
-                    document.getElementById('gps-status').style.color = 'var(--success)';
+                    document.getElementById('gps-status').textHTML = '<i class="fas fa-check-circle" style="color: var(--success);"></i> GPS: Active';
                 },
                 (error) => {
-                    console.error('GPS Error:', error);
-                    document.getElementById('gps-status').textContent = 'GPS: Error';
-                    document.getElementById('gps-status').style.color = 'var(--danger)';
+                    console.error('MADS: GPS Error', error);
+                    document.getElementById('gps-status').innerHTML = '<i class="fas fa-exclamation-triangle" style="color: var(--danger);"></i> GPS: Error';
                 },
                 {
                     enableHighAccuracy: true,
@@ -223,6 +406,7 @@ class BikeAccidentDetector {
         document.getElementById('impact-progress').style.width = `${progress}%`;
         document.getElementById('impact-force').textContent = `${gForce.toFixed(2)} g`;
         
+        // Update impact color based on severity
         const progressFill = document.getElementById('impact-progress');
         if (gForce > this.threshold) {
             progressFill.style.background = 'linear-gradient(90deg, var(--warning), var(--primary))';
@@ -239,11 +423,11 @@ class BikeAccidentDetector {
     }
     
     async triggerEmergencyAlert(gForce) {
-        console.log(`Impact detected: ${gForce.toFixed(2)}g`);
+        console.log(`MADS: Impact detected - ${gForce.toFixed(2)}g`);
         
         document.getElementById('system-status').innerHTML = `
             <div class="indicator alert"></div>
-            <span>ALERT TRIGGERED!</span>
+            <span>🚨 ALERT TRIGGERED!</span>
         `;
         
         this.showCountdownOverlay();
@@ -278,7 +462,7 @@ class BikeAccidentDetector {
     startAlarm() {
         if (this.settings.enableSound) {
             const alarmSound = document.getElementById('alarm-sound');
-            alarmSound.play().catch(e => console.log('Audio play failed:', e));
+            alarmSound.play().catch(e => console.log('MADS: Audio play failed', e));
         }
         
         if (this.settings.enableVibration && 'vibrate' in navigator) {
@@ -301,229 +485,115 @@ class BikeAccidentDetector {
         this.isDetecting = false;
         this.stopAlarm();
         this.hideCountdownOverlay();
-        this.updateStatus();
-        this.showNotification('Alert cancelled', 'System is back to monitoring');
+        this.updateUI();
+        this.showNotification('MADS Alert Cancelled', 'System is back to monitoring');
     }
     
     async sendEmergencyAlert() {
         clearInterval(this.countdownInterval);
         this.stopAlarm();
         
-        this.showSmsProgress();
+        this.showProgress('🚨 MADS: Sending emergency alerts...');
         
         if (!this.location) {
             await this.getCurrentLocation();
         }
         
-        this.updateSmsStatus('sending');
-        
         let successCount = 0;
-        let manualCount = 0;
-        let failedCount = 0;
+        let failCount = 0;
         
         for (const contact of this.contacts) {
-            const method = contact.method || (this.settings.autoSms ? 'auto' : 'manual');
-            const result = await this.sendAlertToContact(contact, method);
-            
-            if (result === 'auto') {
-                successCount++;
-            } else if (result === 'manual') {
-                manualCount++;
+            if (this.settings.notificationMethod === 'whatsapp' && this.callmebot.isConfigured) {
+                const sent = await this.sendWhatsAppAlert(contact);
+                if (sent) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
             } else {
-                failedCount++;
+                // Fallback to SMS
+                this.sendSMSFallback(contact);
+                failCount++;
             }
-            
-            // Small delay between messages
-            await this.delay(500);
+            await this.delay(1000);
         }
         
-        this.hideSmsProgress();
+        this.hideProgress();
         
         if (successCount > 0) {
-            this.updateSmsStatus('success');
-            this.showToast(`✅ ${successCount} SMS sent automatically`, 'success');
+            this.showToast(`✅ MADS: WhatsApp alert sent to ${successCount} contact(s)`, 'success');
         }
         
-        if (manualCount > 0) {
-            this.updateSmsStatus('warning');
-            this.showToast(`✉️ ${manualCount} SMS opened for manual send`, 'warning');
-        }
-        
-        if (failedCount > 0) {
-            this.updateSmsStatus('error');
-            this.showToast(`❌ ${failedCount} SMS failed`, 'error');
-        }
-        
-        if (successCount === 0 && manualCount === 0 && failedCount === 0) {
-            this.updateSmsStatus('error');
-            this.showToast('No contacts to notify', 'error');
+        if (failCount > 0) {
+            this.showToast(`⚠️ MADS: ${failCount} alert(s) failed - check WhatsApp setup`, 'warning');
         }
         
         this.hideCountdownOverlay();
         this.isDetecting = false;
-        this.updateStatus();
+        this.updateUI();
     }
     
-    delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+    async sendWhatsAppAlert(contact) {
+        if (!this.callmebot.isConfigured) {
+            this.showToast('⚠️ WhatsApp not configured', 'warning');
+            return false;
+        }
+        
+        const message = this.createWhatsAppMessage(contact.name);
+        return await this.sendWhatsAppMessage(contact.name, message);
     }
     
-    async sendAlertToContact(contact, method = 'auto') {
-        const message = this.createEmergencyMessage(contact.name);
-        const phoneNumber = contact.phone.replace(/\D/g, '');
+    async sendWhatsAppMessage(contactName, message) {
+        const encodedMessage = encodeURIComponent(message);
+        const url = `https://api.callmebot.com/whatsapp.php?phone=${this.callmebot.phoneNumber}&text=${encodedMessage}&apikey=${this.callmebot.apiKey}`;
         
         try {
-            // METHOD 1: Native Android (for when converted to app)
-            if (this.isNativeAndroid && typeof Android !== 'undefined' && Android.sendSms) {
-                const result = Android.sendSms(phoneNumber, message);
-                if (result === 'success') {
-                    console.log(`SMS sent via native Android to ${contact.name}`);
-                    return 'auto';
-                }
+            const response = await fetch(url);
+            const responseText = await response.text();
+            
+            if (response.status === 200 && responseText.includes('Message sent')) {
+                console.log(`MADS: WhatsApp alert sent to ${contactName}`);
+                return true;
+            } else {
+                console.error('MADS: WhatsApp API error', responseText);
+                return false;
             }
-            
-            // METHOD 2: SMS Gateway API (if configured)
-            if (method === 'auto' && this.smsGateway.type !== 'none') {
-                const sent = await this.sendViaSmsGateway(phoneNumber, message);
-                if (sent) {
-                    console.log(`SMS sent via gateway to ${contact.name}`);
-                    return 'auto';
-                }
-            }
-            
-            // METHOD 3: SMS URI with auto-send intent (Android)
-            if (method === 'auto' && /Android/i.test(navigator.userAgent)) {
-                const sent = await this.sendViaAndroidIntent(phoneNumber, message);
-                if (sent) {
-                    console.log(`SMS sent via Android intent to ${contact.name}`);
-                    return 'auto';
-                }
-            }
-            
-            // METHOD 4: Multiple SMS tabs trick (opens multiple, but user still needs to send)
-            if (method === 'auto') {
-                this.openSmsInBackground(phoneNumber, message);
-                return 'manual'; // Still requires user action
-            }
-            
-            // METHOD 5: Manual - open SMS app
-            const smsUri = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
-            window.open(smsUri, '_blank');
-            return 'manual';
-            
         } catch (error) {
-            console.error('SMS sending failed:', error);
-            
-            // Fallback to manual
-            const smsUri = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
-            window.open(smsUri, '_blank');
-            return 'failed';
+            console.error('MADS: Failed to send WhatsApp', error);
+            return false;
         }
     }
     
-    async sendViaSmsGateway(phoneNumber, message) {
-        if (this.smsGateway.type === 'textbelt') {
-            try {
-                const response = await fetch('https://textbelt.com/text', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        phone: phoneNumber,
-                        message: message,
-                        key: this.smsGateway.apiKey || 'textbelt'
-                    })
-                });
-                
-                const data = await response.json();
-                return data.success;
-            } catch (error) {
-                console.warn('TextBelt failed:', error);
-                return false;
-            }
-        }
+    sendSMSFallback(contact) {
+        const message = this.createEmergencyMessage(contact.name);
+        const smsUri = `sms:${contact.phone}?body=${encodeURIComponent(message)}`;
+        window.open(smsUri, '_blank');
+    }
+    
+    createWhatsAppMessage(contactName) {
+        const time = new Date().toLocaleTimeString();
+        const date = new Date().toLocaleDateString();
+        const mapsLink = this.location ? 
+            `https://maps.google.com/?q=${this.location.latitude},${this.location.longitude}` :
+            'Location unavailable';
         
-        if (this.smsGateway.type === 'custom' && this.smsGateway.url) {
-            try {
-                const response = await fetch(this.smsGateway.url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${this.smsGateway.apiKey}`
-                    },
-                    body: JSON.stringify({
-                        to: phoneNumber,
-                        message: message,
-                        from: 'BikeGuard'
-                    })
-                });
-                
-                return response.ok;
-            } catch (error) {
-                console.warn('Custom gateway failed:', error);
-                return false;
-            }
-        }
-        
-        return false;
-    }
-    
-    async sendViaAndroidIntent(phoneNumber, message) {
-        return new Promise((resolve) => {
-            // Create an invisible iframe to trigger SMS intent
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            
-            // Different Android SMS intent formats
-            const intents = [
-                `sms:${phoneNumber}?body=${encodeURIComponent(message)}`,
-                `intent://${phoneNumber}#Intent;schedule=sms;body=${encodeURIComponent(message)};end`,
-                `sms://${phoneNumber}?body=${encodeURIComponent(message)}`
-            ];
-            
-            let attempted = 0;
-            
-            const tryNextIntent = () => {
-                if (attempted < intents.length) {
-                    iframe.src = intents[attempted];
-                    document.body.appendChild(iframe);
-                    attempted++;
-                    setTimeout(tryNextIntent, 100);
-                } else {
-                    document.body.removeChild(iframe);
-                    resolve(false);
-                }
-            };
-            
-            tryNextIntent();
-            
-            // Some Android devices might auto-send with proper permissions
-            setTimeout(() => {
-                if (document.body.contains(iframe)) {
-                    document.body.removeChild(iframe);
-                }
-                resolve(true); // Assume it worked
-            }, 500);
-        });
-    }
-    
-    openSmsInBackground(phoneNumber, message) {
-        // Create multiple hidden iframes to increase chance of auto-send
-        for (let i = 0; i < 3; i++) {
-            setTimeout(() => {
-                const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                iframe.src = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
-                document.body.appendChild(iframe);
-                
-                setTimeout(() => {
-                    if (document.body.contains(iframe)) {
-                        document.body.removeChild(iframe);
-                    }
-                }, 1000);
-            }, i * 200);
-        }
+        return `🚨 *MADS - MOBILE ACCIDENT DETECTION SYSTEM* 🚨
+
+*EMERGENCY ALERT!*
+
+I've been in a bike accident and need immediate assistance!
+
+📍 *Location:* ${mapsLink}
+📍 *Coordinates:* ${this.location?.latitude || 'N/A'}, ${this.location?.longitude || 'N/A'}
+🕒 *Time:* ${time}
+📅 *Date:* ${date}
+📊 *Accuracy:* ±${Math.round(this.location?.accuracy || 0)}m
+
+Please check on me immediately or call emergency services.
+
+---
+*MADS - Keeping riders safe* 🚲
+_This is an automated emergency alert_`;
     }
     
     createEmergencyMessage(contactName) {
@@ -533,22 +603,7 @@ class BikeAccidentDetector {
             `https://maps.google.com/?q=${this.location.latitude},${this.location.longitude}` :
             'Location unavailable';
         
-        const shortLink = this.location ?
-            `http://maps.google.com/maps?q=${this.location.latitude},${this.location.longitude}` :
-            '';
-        
-        return `🚨 BIKE ACCIDENT! 🚨
-        
-I've crashed my bike and need help!
-
-📍 Location: ${shortLink}
-📍 Coordinates: ${this.location?.latitude || 'N/A'}, ${this.location?.longitude || 'N/A'}
-🕒 Time: ${time}
-📅 Date: ${date}
-
-Please check on me immediately or call emergency services.
-
-- BikeGuard Emergency Alert`;
+        return `MADS EMERGENCY: Bike accident at ${mapsLink} (${time} ${date})`;
     }
     
     async getCurrentLocation() {
@@ -564,7 +619,7 @@ Please check on me immediately or call emergency services.
                         resolve(this.location);
                     },
                     (error) => {
-                        console.error('Location error:', error);
+                        console.error('MADS: Location error', error);
                         resolve(null);
                     },
                     {
@@ -579,13 +634,16 @@ Please check on me immediately or call emergency services.
         });
     }
     
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+    
     updateLocationInfo() {
         const locationInfo = document.getElementById('location-info');
         if (this.location) {
             locationInfo.innerHTML = `
                 📍 ${this.location.latitude.toFixed(6)}, ${this.location.longitude.toFixed(6)}
                 <br><small>Accuracy: ±${Math.round(this.location.accuracy)}m</small>
-                <br><small class="location-link">maps.google.com/?q=${this.location.latitude},${this.location.longitude}</small>
             `;
         } else {
             locationInfo.textContent = 'Getting location...';
@@ -600,49 +658,21 @@ Please check on me immediately or call emergency services.
         }
     }
     
-    showSmsProgress() {
-        const smsProgress = document.getElementById('sms-progress');
-        if (smsProgress) {
-            smsProgress.style.display = 'flex';
-            smsProgress.innerHTML = `
+    showProgress(message) {
+        const progress = document.getElementById('sms-progress');
+        if (progress) {
+            progress.style.display = 'flex';
+            progress.innerHTML = `
                 <i class="fas fa-spinner fa-spin"></i>
-                <span>Sending SMS alerts to ${this.contacts.length} contact(s)...</span>
+                <span>${message}</span>
             `;
         }
     }
     
-    hideSmsProgress() {
-        const smsProgress = document.getElementById('sms-progress');
-        if (smsProgress) {
-            smsProgress.style.display = 'none';
-        }
-    }
-    
-    updateSmsStatus(status) {
-        const smsStatus = document.getElementById('sms-status');
-        if (smsStatus) {
-            smsStatus.className = 'status-item';
-            
-            switch(status) {
-                case 'sending':
-                    smsStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> SMS: Sending...';
-                    smsStatus.classList.add('sending');
-                    break;
-                case 'success':
-                    smsStatus.innerHTML = '<i class="fas fa-check-circle" style="color: var(--success);"></i> SMS: Sent';
-                    smsStatus.classList.add('success');
-                    break;
-                case 'warning':
-                    smsStatus.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: var(--warning);"></i> SMS: Manual';
-                    smsStatus.classList.add('warning');
-                    break;
-                case 'error':
-                    smsStatus.innerHTML = '<i class="fas fa-times-circle" style="color: var(--danger);"></i> SMS: Failed';
-                    smsStatus.classList.add('error');
-                    break;
-                default:
-                    smsStatus.innerHTML = '<i class="fas fa-sms"></i> SMS: Ready';
-            }
+    hideProgress() {
+        const progress = document.getElementById('sms-progress');
+        if (progress) {
+            progress.style.display = 'none';
         }
     }
     
@@ -658,29 +688,29 @@ Please check on me immediately or call emergency services.
             toggleBtn.classList.add('btn-secondary');
             statusIndicator.innerHTML = `
                 <div class="indicator active"></div>
-                <span>ACTIVE - Monitoring</span>
+                <span>🟢 MADS ACTIVE</span>
             `;
-            this.showNotification('Protection Activated', 'BikeGuard is now monitoring for accidents');
+            this.showNotification('MADS Activated', 'Monitoring for accidents');
         } else {
             toggleBtn.innerHTML = '<i class="fas fa-power-off"></i> Start Protection';
             toggleBtn.classList.remove('btn-secondary');
             toggleBtn.classList.add('btn-primary');
             statusIndicator.innerHTML = `
                 <div class="indicator inactive"></div>
-                <span>INACTIVE</span>
+                <span>⚫ MADS INACTIVE</span>
             `;
-            this.showNotification('Protection Deactivated', 'BikeGuard is not monitoring');
+            this.showNotification('MADS Deactivated', 'System is off');
         }
     }
     
     testAlert() {
         if (!this.isActive) {
-            this.showNotification('Please activate system first', 'Click "Start Protection" to begin monitoring');
+            this.showNotification('MADS', 'Please activate system first');
             return;
         }
         
         this.detectImpact(this.threshold + 1);
-        this.showNotification('Test Alert Started', 'Countdown initiated - cancel to stop test');
+        this.showNotification('MADS Test', 'Test alert initiated');
     }
     
     updateThreshold(value) {
@@ -698,35 +728,23 @@ Please check on me immediately or call emergency services.
         document.getElementById('contact-modal').style.display = 'none';
         document.getElementById('contact-name').value = '';
         document.getElementById('contact-phone').value = '';
-        
-        const methodSelect = document.getElementById('contact-method');
-        if (methodSelect) {
-            methodSelect.value = this.settings.autoSms ? 'auto' : 'manual';
-        }
     }
     
     saveContact() {
         const name = document.getElementById('contact-name').value.trim();
         const phone = document.getElementById('contact-phone').value.trim();
-        const methodSelect = document.getElementById('contact-method');
-        const method = methodSelect ? methodSelect.value : (this.settings.autoSms ? 'auto' : 'manual');
         
         if (!name || !phone) {
-            this.showNotification('Please fill all fields', 'Name and phone number are required');
+            this.showNotification('MADS', 'Please fill all fields');
             return;
         }
         
-        const phoneRegex = /^[\+]?[(]?[0-9]{1,4}[)]?[-\s\.]?[(]?[0-9]{1,4}[)]?[-\s\.]?[0-9]{1,5}[-\s\.]?[0-9]{1,5}$/;
-        if (!phoneRegex.test(phone)) {
-            this.showNotification('Invalid phone number', 'Please enter a valid phone number');
-            return;
-        }
+        const cleanPhone = phone.replace(/\D/g, '');
         
         const contact = {
             id: Date.now(),
             name: name,
-            phone: phone,
-            method: method
+            phone: cleanPhone
         };
         
         this.contacts.push(contact);
@@ -734,8 +752,7 @@ Please check on me immediately or call emergency services.
         this.renderContacts();
         this.hideContactModal();
         
-        const methodText = method === 'auto' ? 'Auto SMS' : 'Manual SMS';
-        this.showNotification('Contact saved', `${name} added (${methodText})`);
+        this.showNotification('MADS', `${name} added to emergency contacts`);
     }
     
     deleteContact(id) {
@@ -743,7 +760,7 @@ Please check on me immediately or call emergency services.
             this.contacts = this.contacts.filter(contact => contact.id !== id);
             this.saveContacts();
             this.renderContacts();
-            this.showNotification('Contact removed', 'Emergency contact deleted');
+            this.showNotification('MADS', 'Contact removed');
         }
     }
     
@@ -755,7 +772,7 @@ Please check on me immediately or call emergency services.
                 <div class="empty-contacts">
                     <i class="fas fa-user-plus"></i>
                     <p>No emergency contacts added</p>
-                    <small>Add contacts who will receive SMS alerts</small>
+                    <small>Add contacts who will receive MADS alerts</small>
                 </div>
             `;
             return;
@@ -766,30 +783,26 @@ Please check on me immediately or call emergency services.
                 <div class="contact-info">
                     <h4>
                         ${contact.name}
-                        <span class="sms-badge ${contact.method || (this.settings.autoSms ? 'auto' : 'manual')}">
-                            ${(contact.method || (this.settings.autoSms ? 'auto' : 'manual')) === 'auto' ? '⚡ AUTO' : '✎ MANUAL'}
+                        <span class="sms-badge whatsapp">
+                            <i class="fab fa-whatsapp"></i> WhatsApp
                         </span>
                     </h4>
                     <p>${contact.phone}</p>
-                    <small>
-                        <i class="fas ${(contact.method || 'auto') === 'auto' ? 'fa-bolt' : 'fa-pencil-alt'}"></i>
-                        ${(contact.method || 'auto') === 'auto' ? 'Automatic SMS' : 'Opens messaging app'}
-                    </small>
+                    <small>MADS Emergency Contact</small>
                 </div>
-                <button class="delete-contact" onclick="bikeGuard.deleteContact(${contact.id})">
+                <button class="delete-contact" onclick="mads.deleteContact(${contact.id})">
                     <i class="fas fa-trash"></i>
                 </button>
             </div>
         `).join('');
     }
     
-    updateStatus() {
+    updateUI() {
         if ('getBattery' in navigator) {
             navigator.getBattery().then(battery => {
                 this.updateBatteryStatus(battery);
             });
         }
-        this.updateSmsStatus('ready');
     }
     
     updateBatteryStatus(battery) {
@@ -813,28 +826,27 @@ Please check on me immediately or call emergency services.
     
     showNotification(title, message) {
         if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(title, {
+            new Notification(`MADS: ${title}`, {
                 body: message,
                 icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚲</text></svg>'
             });
         }
-        
-        this.showToast(message, title);
+        this.showToast(message);
     }
     
     showToast(message, type = 'info') {
-        let toast = document.getElementById('sms-toast');
+        let toast = document.getElementById('mads-toast');
         
         if (!toast) {
             toast = document.createElement('div');
-            toast.id = 'sms-toast';
-            toast.className = 'sms-toast';
+            toast.id = 'mads-toast';
+            toast.className = 'mads-toast';
             document.body.appendChild(toast);
         }
         
-        toast.className = `sms-toast ${type}`;
+        toast.className = `mads-toast ${type}`;
         toast.innerHTML = `
-            <div class="sms-toast-content">
+            <div class="toast-content">
                 <i class="fas ${this.getToastIcon(type)}"></i>
                 <span>${message}</span>
             </div>
@@ -865,14 +877,13 @@ Please check on me immediately or call emergency services.
             contacts: this.contacts,
             settings: this.settings,
             threshold: this.threshold,
-            countdownTime: this.countdownTime,
-            smsGateway: this.smsGateway
+            countdownTime: this.countdownTime
         };
-        localStorage.setItem('bikeGuard', JSON.stringify(data));
+        localStorage.setItem('mads_data', JSON.stringify(data));
     }
     
     loadData() {
-        const saved = localStorage.getItem('bikeGuard');
+        const saved = localStorage.getItem('mads_data');
         if (saved) {
             try {
                 const data = JSON.parse(saved);
@@ -880,7 +891,6 @@ Please check on me immediately or call emergency services.
                 this.settings = { ...this.settings, ...(data.settings || {}) };
                 this.threshold = data.threshold || 3.5;
                 this.countdownTime = data.countdownTime || 10;
-                this.smsGateway = data.smsGateway || { type: 'none' };
                 
                 document.getElementById('threshold').value = this.threshold;
                 document.getElementById('threshold-display').textContent = `${this.threshold}g`;
@@ -889,14 +899,14 @@ Please check on me immediately or call emergency services.
                 document.getElementById('enable-sound').checked = this.settings.enableSound;
                 document.getElementById('enable-vibration').checked = this.settings.enableVibration;
                 
-                const autoSmsCheckbox = document.getElementById('auto-sms');
-                if (autoSmsCheckbox) {
-                    autoSmsCheckbox.checked = this.settings.autoSms;
+                const methodSelect = document.getElementById('notification-method');
+                if (methodSelect) {
+                    methodSelect.value = this.settings.notificationMethod;
                 }
                 
                 this.renderContacts();
             } catch (e) {
-                console.error('Failed to load saved data:', e);
+                console.error('MADS: Failed to load saved data', e);
             }
         }
     }
@@ -910,34 +920,228 @@ Please check on me immediately or call emergency services.
     }
 }
 
+// Initialize MADS
+const mads = new MADS();
+window.mads = mads;
+
+// Add styles for MADS
 document.addEventListener('DOMContentLoaded', () => {
-    window.bikeGuard = new BikeAccidentDetector();
+    const style = document.createElement('style');
+    style.textContent = `
+        .mads-toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 10001;
+            animation: slideUp 0.3s ease;
+            display: none;
+        }
+        
+        .mads-toast.success {
+            background: var(--success);
+        }
+        
+        .mads-toast.warning {
+            background: var(--warning);
+        }
+        
+        .mads-toast.error {
+            background: var(--danger);
+        }
+        
+        .toast-content {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translate(-50%, 20px);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, 0);
+            }
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 1;
+                transform: translate(-50%, 0);
+            }
+            to {
+                opacity: 0;
+                transform: translate(-50%, 20px);
+            }
+        }
+        
+        .whatsapp-setup-modal {
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .whatsapp-setup-modal .modal-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .whatsapp-setup-modal .modal-header h2 {
+            margin: 10px 0 5px;
+        }
+        
+        .whatsapp-setup-modal .setup-steps {
+            margin: 20px 0;
+        }
+        
+        .whatsapp-setup-modal .step {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: rgba(37, 211, 102, 0.1);
+            border-radius: 12px;
+            border-left: 4px solid #25D366;
+        }
+        
+        .whatsapp-setup-modal .step-number {
+            width: 30px;
+            height: 30px;
+            background: #25D366;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+        
+        .whatsapp-setup-modal .step-content {
+            flex: 1;
+        }
+        
+        .whatsapp-setup-modal .step-content h4 {
+            margin-bottom: 8px;
+            color: #25D366;
+        }
+        
+        .whatsapp-setup-modal .info-box {
+            background: var(--card-bg);
+            padding: 12px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+            border: 1px solid var(--border);
+        }
+        
+        .whatsapp-setup-modal .info-box code {
+            flex: 1;
+            font-family: monospace;
+            font-size: 14px;
+            word-break: break-all;
+        }
+        
+        .whatsapp-setup-modal .copy-btn {
+            background: var(--secondary);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+        }
+        
+        .whatsapp-setup-modal .copy-btn:hover {
+            background: var(--secondary-dark);
+        }
+        
+        .whatsapp-setup-modal .input-group {
+            margin: 15px 0;
+        }
+        
+        .whatsapp-setup-modal .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        .whatsapp-setup-modal .input-group input {
+            width: 100%;
+            padding: 10px;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 14px;
+        }
+        
+        .whatsapp-setup-modal .input-group small {
+            display: block;
+            color: var(--text-secondary);
+            font-size: 11px;
+            margin-top: 4px;
+        }
+        
+        .whatsapp-setup-modal .test-section {
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .whatsapp-setup-modal .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .whatsapp-setup-modal .modal-actions .btn {
+            flex: 1;
+        }
+        
+        .sms-badge.whatsapp {
+            background: #25D366;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+        
+        .sms-badge.whatsapp i {
+            margin-right: 4px;
+        }
+        
+        #whatsapp-setup-btn {
+            margin: 10px 0;
+            width: 100%;
+            background: #25D366;
+            color: white;
+        }
+        
+        #whatsapp-setup-btn:hover {
+            background: #128C7E;
+        }
+    `;
+    document.head.appendChild(style);
     
-    if (!document.querySelector('#sms-toast-style')) {
-        const style = document.createElement('style');
-        style.id = 'sms-toast-style';
-        style.textContent = `
-            @keyframes slideInRight {
-                from { transform: translateX(100%); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
-            }
-            @keyframes slideOutRight {
-                from { transform: translateX(0); opacity: 1; }
-                to { transform: translateX(100%); opacity: 0; }
-            }
-            @keyframes slideDown {
-                from { transform: translateY(0); opacity: 1; }
-                to { transform: translateY(20px); opacity: 0; }
-            }
-        `;
-        document.head.appendChild(style);
-    }
-    
+    // Service Worker
     if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('sw.js').catch(error => {
-                console.log('Service Worker registration failed:', error);
-            });
+        navigator.serviceWorker.register('sw.js').catch(error => {
+            console.log('MADS: Service Worker failed', error);
         });
     }
 });
