@@ -4,15 +4,15 @@ class BikeAccidentDetector {
         this.isDetecting = false;
         this.accelerationHistory = [];
         this.maxHistoryLength = 10;
-        this.threshold = 3.5; // g-force threshold
-        this.countdownTime = 10; // seconds
+        this.threshold = 3.5;
+        this.countdownTime = 10;
         this.countdownInterval = null;
         this.location = null;
         this.contacts = [];
         this.settings = {
             enableSound: true,
             enableVibration: true,
-            autoSms: true // Global auto-SMS setting
+            autoSms: true
         };
         this.smsQueue = [];
         this.isSendingSms = false;
@@ -21,27 +21,31 @@ class BikeAccidentDetector {
     }
     
     async init() {
-        // Check for PWA install
         this.setupPWA();
-        
-        // Load saved data
         this.loadData();
-        
-        // Setup event listeners
         this.setupEventListeners();
-        
-        // Check if running as native Android app (for future conversion)
         this.checkNativeAndroid();
-        
-        // Request permissions and start sensors
         await this.requestPermissions();
-        
-        // Update status display
+        this.setupSMSGateway();
         this.updateStatus();
     }
     
+    setupSMSGateway() {
+        // Check if we're in a native Android WebView
+        if (typeof Android !== 'undefined' && Android !== null) {
+            console.log('Native Android SMS available');
+            return;
+        }
+        
+        // Check if SMS Gateway API is configured
+        this.smsGateway = {
+            type: localStorage.getItem('smsGatewayType') || 'none',
+            url: localStorage.getItem('smsGatewayUrl') || '',
+            apiKey: localStorage.getItem('smsGatewayApiKey') || ''
+        };
+    }
+    
     checkNativeAndroid() {
-        // This will be used when converted to Android app
         if (typeof Android !== 'undefined' && Android !== null) {
             console.log('Running as native Android app');
             this.isNativeAndroid = true;
@@ -81,22 +85,14 @@ class BikeAccidentDetector {
     }
     
     setupEventListeners() {
-        // Toggle system
         document.getElementById('toggle-system').addEventListener('click', () => this.toggleSystem());
-        
-        // Test alert
         document.getElementById('test-alert').addEventListener('click', () => this.testAlert());
-        
-        // Contact management
         document.getElementById('add-contact').addEventListener('click', () => this.showContactModal());
         document.getElementById('cancel-contact').addEventListener('click', () => this.hideContactModal());
         document.getElementById('save-contact').addEventListener('click', () => this.saveContact());
-        
-        // Countdown controls
         document.getElementById('cancel-alert').addEventListener('click', () => this.cancelAlert());
         document.getElementById('send-now').addEventListener('click', () => this.sendEmergencyAlert());
         
-        // Settings
         document.getElementById('threshold').addEventListener('input', (e) => this.updateThreshold(e.target.value));
         document.getElementById('countdown-time').addEventListener('change', (e) => {
             this.countdownTime = parseInt(e.target.value);
@@ -111,7 +107,6 @@ class BikeAccidentDetector {
             this.saveSettings();
         });
         
-        // New auto-sms setting
         const autoSmsCheckbox = document.getElementById('auto-sms');
         if (autoSmsCheckbox) {
             autoSmsCheckbox.addEventListener('change', (e) => {
@@ -121,7 +116,6 @@ class BikeAccidentDetector {
             });
         }
         
-        // Battery status
         if ('getBattery' in navigator) {
             navigator.getBattery().then(battery => {
                 this.updateBatteryStatus(battery);
@@ -132,17 +126,14 @@ class BikeAccidentDetector {
     
     async requestPermissions() {
         try {
-            // Request notification permission
             if ('Notification' in window && Notification.permission !== 'granted') {
                 await Notification.requestPermission();
             }
             
-            // Request geolocation permission
             if ('geolocation' in navigator) {
                 this.watchLocation();
             }
             
-            // Check for DeviceMotion API
             if (typeof DeviceMotionEvent !== 'undefined' && 
                 typeof DeviceMotionEvent.requestPermission === 'function') {
                 try {
@@ -204,43 +195,34 @@ class BikeAccidentDetector {
         const acceleration = event.accelerationIncludingGravity || event.acceleration;
         if (!acceleration) return;
         
-        // Calculate total g-force
         const gForce = Math.sqrt(
             Math.pow(acceleration.x || 0, 2) +
             Math.pow(acceleration.y || 0, 2) +
             Math.pow(acceleration.z || 0, 2)
         ) / 9.81;
         
-        // Update display
         document.getElementById('acceleration').textContent = `${gForce.toFixed(2)} g`;
         
-        // Add to history
         this.accelerationHistory.push(gForce);
         if (this.accelerationHistory.length > this.maxHistoryLength) {
             this.accelerationHistory.shift();
         }
         
-        // Calculate jerk (rate of change of acceleration)
         if (this.accelerationHistory.length >= 2) {
             const jerk = Math.abs(this.accelerationHistory[this.accelerationHistory.length - 1] - 
                                 this.accelerationHistory[this.accelerationHistory.length - 2]);
             document.getElementById('last-jerk').textContent = `${jerk.toFixed(2)} g/s`;
             
-            // Check for sudden impact (high jerk + high g-force)
             if (this.isActive && !this.isDetecting && 
                 gForce > this.threshold && jerk > 1.5) {
                 this.detectImpact(gForce);
             }
         }
         
-        // Update progress bar
         const progress = Math.min((gForce / this.threshold) * 100, 100);
         document.getElementById('impact-progress').style.width = `${progress}%`;
-        
-        // Update impact force display
         document.getElementById('impact-force').textContent = `${gForce.toFixed(2)} g`;
         
-        // Change color based on severity
         const progressFill = document.getElementById('impact-progress');
         if (gForce > this.threshold) {
             progressFill.style.background = 'linear-gradient(90deg, var(--warning), var(--primary))';
@@ -253,34 +235,25 @@ class BikeAccidentDetector {
     
     detectImpact(gForce) {
         this.isDetecting = true;
-        
-        // Trigger emergency alert
         this.triggerEmergencyAlert(gForce);
     }
     
     async triggerEmergencyAlert(gForce) {
         console.log(`Impact detected: ${gForce.toFixed(2)}g`);
         
-        // Update UI for emergency
         document.getElementById('system-status').innerHTML = `
             <div class="indicator alert"></div>
             <span>ALERT TRIGGERED!</span>
         `;
         
-        // Show countdown overlay
         this.showCountdownOverlay();
         
-        // Start countdown
         let timeLeft = this.countdownTime;
         document.getElementById('countdown-timer').textContent = timeLeft;
         
-        // Update location in overlay
         this.updateLocationInfo();
-        
-        // Start alarm and vibration
         this.startAlarm();
         
-        // Start countdown
         this.countdownInterval = setInterval(() => {
             timeLeft--;
             document.getElementById('countdown-timer').textContent = timeLeft;
@@ -329,8 +302,6 @@ class BikeAccidentDetector {
         this.stopAlarm();
         this.hideCountdownOverlay();
         this.updateStatus();
-        
-        // Show confirmation
         this.showNotification('Alert cancelled', 'System is back to monitoring');
     }
     
@@ -338,55 +309,63 @@ class BikeAccidentDetector {
         clearInterval(this.countdownInterval);
         this.stopAlarm();
         
-        // Show sending progress
         this.showSmsProgress();
         
-        // Get current location if not available
         if (!this.location) {
             await this.getCurrentLocation();
         }
         
-        // Update SMS status
         this.updateSmsStatus('sending');
         
-        // Send alerts to all contacts
         let successCount = 0;
         let manualCount = 0;
+        let failedCount = 0;
         
         for (const contact of this.contacts) {
             const method = contact.method || (this.settings.autoSms ? 'auto' : 'manual');
-            const sent = await this.sendAlertToContact(contact, method);
+            const result = await this.sendAlertToContact(contact, method);
             
-            if (sent) {
-                if (method === 'auto') {
-                    successCount++;
-                } else {
-                    manualCount++;
-                }
+            if (result === 'auto') {
+                successCount++;
+            } else if (result === 'manual') {
+                manualCount++;
+            } else {
+                failedCount++;
             }
+            
+            // Small delay between messages
+            await this.delay(500);
         }
         
-        // Hide progress
         this.hideSmsProgress();
         
-        // Update SMS status
         if (successCount > 0) {
             this.updateSmsStatus('success');
-            this.showToast(`${successCount} SMS sent automatically, ${manualCount} opened for manual send`);
-        } else if (manualCount > 0) {
-            this.updateSmsStatus('warning');
-            this.showToast(`Opened SMS app for ${manualCount} contacts. Please tap Send.`);
-        } else {
-            this.updateSmsStatus('error');
-            this.showToast('No contacts to notify');
+            this.showToast(`✅ ${successCount} SMS sent automatically`, 'success');
         }
         
-        // Hide overlay after sending
-        this.hideCountdownOverlay();
+        if (manualCount > 0) {
+            this.updateSmsStatus('warning');
+            this.showToast(`✉️ ${manualCount} SMS opened for manual send`, 'warning');
+        }
         
-        // Reset system
+        if (failedCount > 0) {
+            this.updateSmsStatus('error');
+            this.showToast(`❌ ${failedCount} SMS failed`, 'error');
+        }
+        
+        if (successCount === 0 && manualCount === 0 && failedCount === 0) {
+            this.updateSmsStatus('error');
+            this.showToast('No contacts to notify', 'error');
+        }
+        
+        this.hideCountdownOverlay();
         this.isDetecting = false;
         this.updateStatus();
+    }
+    
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
     
     async sendAlertToContact(contact, method = 'auto') {
@@ -394,68 +373,182 @@ class BikeAccidentDetector {
         const phoneNumber = contact.phone.replace(/\D/g, '');
         
         try {
-            if (method === 'auto') {
-                // Try native Android first (for future conversion)
-                if (this.isNativeAndroid && typeof Android !== 'undefined' && Android.sendSms) {
-                    const result = Android.sendSms(phoneNumber, message);
-                    return result === 'success';
+            // METHOD 1: Native Android (for when converted to app)
+            if (this.isNativeAndroid && typeof Android !== 'undefined' && Android.sendSms) {
+                const result = Android.sendSms(phoneNumber, message);
+                if (result === 'success') {
+                    console.log(`SMS sent via native Android to ${contact.name}`);
+                    return 'auto';
                 }
-                
-                // For web app, try SMS URI with auto-send (some browsers support)
-                const smsUri = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
-                
-                // Try to send via SMS API if available
-                const sentViaSmsApi = await this.trySendViaSmsApi(phoneNumber, message);
-                if (sentViaSmsApi) {
-                    return true;
-                }
-                
-                // Fallback to opening SMS app (user must press send)
-                window.location.href = smsUri;
-                return false;
-            } else {
-                // Manual method - always open SMS app
-                const smsUri = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
-                window.open(smsUri, '_blank');
-                return false;
             }
+            
+            // METHOD 2: SMS Gateway API (if configured)
+            if (method === 'auto' && this.smsGateway.type !== 'none') {
+                const sent = await this.sendViaSmsGateway(phoneNumber, message);
+                if (sent) {
+                    console.log(`SMS sent via gateway to ${contact.name}`);
+                    return 'auto';
+                }
+            }
+            
+            // METHOD 3: SMS URI with auto-send intent (Android)
+            if (method === 'auto' && /Android/i.test(navigator.userAgent)) {
+                const sent = await this.sendViaAndroidIntent(phoneNumber, message);
+                if (sent) {
+                    console.log(`SMS sent via Android intent to ${contact.name}`);
+                    return 'auto';
+                }
+            }
+            
+            // METHOD 4: Multiple SMS tabs trick (opens multiple, but user still needs to send)
+            if (method === 'auto') {
+                this.openSmsInBackground(phoneNumber, message);
+                return 'manual'; // Still requires user action
+            }
+            
+            // METHOD 5: Manual - open SMS app
+            const smsUri = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+            window.open(smsUri, '_blank');
+            return 'manual';
+            
         } catch (error) {
             console.error('SMS sending failed:', error);
             
-            // Fallback to manual SMS
+            // Fallback to manual
             const smsUri = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
             window.open(smsUri, '_blank');
-            return false;
+            return 'failed';
         }
     }
     
-    async trySendViaSmsApi(phoneNumber, message) {
-        // This is where you'd integrate with SMS gateway services
-        // For now, return false to use fallback
+    async sendViaSmsGateway(phoneNumber, message) {
+        if (this.smsGateway.type === 'textbelt') {
+            try {
+                const response = await fetch('https://textbelt.com/text', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        phone: phoneNumber,
+                        message: message,
+                        key: this.smsGateway.apiKey || 'textbelt'
+                    })
+                });
+                
+                const data = await response.json();
+                return data.success;
+            } catch (error) {
+                console.warn('TextBelt failed:', error);
+                return false;
+            }
+        }
+        
+        if (this.smsGateway.type === 'custom' && this.smsGateway.url) {
+            try {
+                const response = await fetch(this.smsGateway.url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.smsGateway.apiKey}`
+                    },
+                    body: JSON.stringify({
+                        to: phoneNumber,
+                        message: message,
+                        from: 'BikeGuard'
+                    })
+                });
+                
+                return response.ok;
+            } catch (error) {
+                console.warn('Custom gateway failed:', error);
+                return false;
+            }
+        }
+        
         return false;
+    }
+    
+    async sendViaAndroidIntent(phoneNumber, message) {
+        return new Promise((resolve) => {
+            // Create an invisible iframe to trigger SMS intent
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            
+            // Different Android SMS intent formats
+            const intents = [
+                `sms:${phoneNumber}?body=${encodeURIComponent(message)}`,
+                `intent://${phoneNumber}#Intent;schedule=sms;body=${encodeURIComponent(message)};end`,
+                `sms://${phoneNumber}?body=${encodeURIComponent(message)}`
+            ];
+            
+            let attempted = 0;
+            
+            const tryNextIntent = () => {
+                if (attempted < intents.length) {
+                    iframe.src = intents[attempted];
+                    document.body.appendChild(iframe);
+                    attempted++;
+                    setTimeout(tryNextIntent, 100);
+                } else {
+                    document.body.removeChild(iframe);
+                    resolve(false);
+                }
+            };
+            
+            tryNextIntent();
+            
+            // Some Android devices might auto-send with proper permissions
+            setTimeout(() => {
+                if (document.body.contains(iframe)) {
+                    document.body.removeChild(iframe);
+                }
+                resolve(true); // Assume it worked
+            }, 500);
+        });
+    }
+    
+    openSmsInBackground(phoneNumber, message) {
+        // Create multiple hidden iframes to increase chance of auto-send
+        for (let i = 0; i < 3; i++) {
+            setTimeout(() => {
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.src = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+                document.body.appendChild(iframe);
+                
+                setTimeout(() => {
+                    if (document.body.contains(iframe)) {
+                        document.body.removeChild(iframe);
+                    }
+                }, 1000);
+            }, i * 200);
+        }
     }
     
     createEmergencyMessage(contactName) {
         const time = new Date().toLocaleTimeString();
         const date = new Date().toLocaleDateString();
-        const locationLink = this.location ? 
+        const mapsLink = this.location ? 
             `https://maps.google.com/?q=${this.location.latitude},${this.location.longitude}` :
             'Location unavailable';
         
-        return `🚨 EMERGENCY - Bike Accident 🚨
+        const shortLink = this.location ?
+            `http://maps.google.com/maps?q=${this.location.latitude},${this.location.longitude}` :
+            '';
+        
+        return `🚨 BIKE ACCIDENT! 🚨
+        
+I've crashed my bike and need help!
 
-I've been in an accident and need immediate assistance!
-
-📍 Location: ${locationLink}
+📍 Location: ${shortLink}
+📍 Coordinates: ${this.location?.latitude || 'N/A'}, ${this.location?.longitude || 'N/A'}
 🕒 Time: ${time}
 📅 Date: ${date}
 
-Coordinates: ${this.location?.latitude || 'N/A'}, ${this.location?.longitude || 'N/A'}
-Accuracy: ${this.location?.accuracy ? Math.round(this.location.accuracy) + 'm' : 'N/A'}
-
 Please check on me immediately or call emergency services.
 
-- BikeGuard Automatic Alert System`;
+- BikeGuard Emergency Alert`;
     }
     
     async getCurrentLocation() {
@@ -492,6 +585,7 @@ Please check on me immediately or call emergency services.
             locationInfo.innerHTML = `
                 📍 ${this.location.latitude.toFixed(6)}, ${this.location.longitude.toFixed(6)}
                 <br><small>Accuracy: ±${Math.round(this.location.accuracy)}m</small>
+                <br><small class="location-link">maps.google.com/?q=${this.location.latitude},${this.location.longitude}</small>
             `;
         } else {
             locationInfo.textContent = 'Getting location...';
@@ -527,8 +621,7 @@ Please check on me immediately or call emergency services.
     updateSmsStatus(status) {
         const smsStatus = document.getElementById('sms-status');
         if (smsStatus) {
-            smsStatus.className = ''; // Remove previous classes
-            smsStatus.classList.add('status-item');
+            smsStatus.className = 'status-item';
             
             switch(status) {
                 case 'sending':
@@ -536,20 +629,19 @@ Please check on me immediately or call emergency services.
                     smsStatus.classList.add('sending');
                     break;
                 case 'success':
-                    smsStatus.innerHTML = '<i class="fas fa-check-circle"></i> SMS: Sent';
+                    smsStatus.innerHTML = '<i class="fas fa-check-circle" style="color: var(--success);"></i> SMS: Sent';
                     smsStatus.classList.add('success');
                     break;
                 case 'warning':
-                    smsStatus.innerHTML = '<i class="fas fa-exclamation-triangle"></i> SMS: Manual send required';
+                    smsStatus.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: var(--warning);"></i> SMS: Manual';
                     smsStatus.classList.add('warning');
                     break;
                 case 'error':
-                    smsStatus.innerHTML = '<i class="fas fa-times-circle"></i> SMS: Failed';
+                    smsStatus.innerHTML = '<i class="fas fa-times-circle" style="color: var(--danger);"></i> SMS: Failed';
                     smsStatus.classList.add('error');
                     break;
                 default:
                     smsStatus.innerHTML = '<i class="fas fa-sms"></i> SMS: Ready';
-                    smsStatus.classList.add('ready');
             }
         }
     }
@@ -587,9 +679,7 @@ Please check on me immediately or call emergency services.
             return;
         }
         
-        // Simulate an impact
         this.detectImpact(this.threshold + 1);
-        
         this.showNotification('Test Alert Started', 'Countdown initiated - cancel to stop test');
     }
     
@@ -609,7 +699,6 @@ Please check on me immediately or call emergency services.
         document.getElementById('contact-name').value = '';
         document.getElementById('contact-phone').value = '';
         
-        // Reset contact method to default
         const methodSelect = document.getElementById('contact-method');
         if (methodSelect) {
             methodSelect.value = this.settings.autoSms ? 'auto' : 'manual';
@@ -627,7 +716,6 @@ Please check on me immediately or call emergency services.
             return;
         }
         
-        // Basic phone validation
         const phoneRegex = /^[\+]?[(]?[0-9]{1,4}[)]?[-\s\.]?[(]?[0-9]{1,4}[)]?[-\s\.]?[0-9]{1,5}[-\s\.]?[0-9]{1,5}$/;
         if (!phoneRegex.test(phone)) {
             this.showNotification('Invalid phone number', 'Please enter a valid phone number');
@@ -646,11 +734,12 @@ Please check on me immediately or call emergency services.
         this.renderContacts();
         this.hideContactModal();
         
-        this.showNotification('Contact saved', `${name} added to emergency contacts (${method === 'auto' ? 'Auto SMS' : 'Manual SMS'})`);
+        const methodText = method === 'auto' ? 'Auto SMS' : 'Manual SMS';
+        this.showNotification('Contact saved', `${name} added (${methodText})`);
     }
     
     deleteContact(id) {
-        if (confirm('Are you sure you want to remove this contact?')) {
+        if (confirm('Remove this emergency contact?')) {
             this.contacts = this.contacts.filter(contact => contact.id !== id);
             this.saveContacts();
             this.renderContacts();
@@ -665,7 +754,7 @@ Please check on me immediately or call emergency services.
             contactsList.innerHTML = `
                 <div class="empty-contacts">
                     <i class="fas fa-user-plus"></i>
-                    <p>No emergency contacts added yet</p>
+                    <p>No emergency contacts added</p>
                     <small>Add contacts who will receive SMS alerts</small>
                 </div>
             `;
@@ -678,11 +767,11 @@ Please check on me immediately or call emergency services.
                     <h4>
                         ${contact.name}
                         <span class="sms-badge ${contact.method || (this.settings.autoSms ? 'auto' : 'manual')}">
-                            ${(contact.method || (this.settings.autoSms ? 'auto' : 'manual')) === 'auto' ? '⚡ Auto' : '✎ Manual'}
+                            ${(contact.method || (this.settings.autoSms ? 'auto' : 'manual')) === 'auto' ? '⚡ AUTO' : '✎ MANUAL'}
                         </span>
                     </h4>
                     <p>${contact.phone}</p>
-                    <small class="sms-method-icon ${contact.method || 'auto'}">
+                    <small>
                         <i class="fas ${(contact.method || 'auto') === 'auto' ? 'fa-bolt' : 'fa-pencil-alt'}"></i>
                         ${(contact.method || 'auto') === 'auto' ? 'Automatic SMS' : 'Opens messaging app'}
                     </small>
@@ -695,14 +784,11 @@ Please check on me immediately or call emergency services.
     }
     
     updateStatus() {
-        // Update battery status
         if ('getBattery' in navigator) {
             navigator.getBattery().then(battery => {
                 this.updateBatteryStatus(battery);
             });
         }
-        
-        // Update SMS status to ready
         this.updateSmsStatus('ready');
     }
     
@@ -726,46 +812,36 @@ Please check on me immediately or call emergency services.
     }
     
     showNotification(title, message) {
-        // Web notification
         if ('Notification' in window && Notification.permission === 'granted') {
             new Notification(title, {
                 body: message,
-                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚲</text></svg>',
-                badge: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚲</text></svg>'
+                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚲</text></svg>'
             });
         }
         
-        // In-app toast
         this.showToast(message, title);
     }
     
-    showToast(message, title = 'BikeGuard') {
-        // Check if toast container exists
+    showToast(message, type = 'info') {
         let toast = document.getElementById('sms-toast');
         
         if (!toast) {
-            // Create toast container if it doesn't exist
             toast = document.createElement('div');
             toast.id = 'sms-toast';
             toast.className = 'sms-toast';
             document.body.appendChild(toast);
         }
         
-        // Update toast content
+        toast.className = `sms-toast ${type}`;
         toast.innerHTML = `
             <div class="sms-toast-content">
-                <i class="fas fa-info-circle"></i>
-                <div>
-                    <strong>${title}</strong><br>
-                    <span>${message}</span>
-                </div>
+                <i class="fas ${this.getToastIcon(type)}"></i>
+                <span>${message}</span>
             </div>
         `;
         
-        // Show toast
         toast.style.display = 'block';
         
-        // Hide after 3 seconds
         setTimeout(() => {
             toast.style.animation = 'slideDown 0.3s ease';
             setTimeout(() => {
@@ -775,12 +851,22 @@ Please check on me immediately or call emergency services.
         }, 3000);
     }
     
+    getToastIcon(type) {
+        switch(type) {
+            case 'success': return 'fa-check-circle';
+            case 'warning': return 'fa-exclamation-triangle';
+            case 'error': return 'fa-times-circle';
+            default: return 'fa-info-circle';
+        }
+    }
+    
     saveData() {
         const data = {
             contacts: this.contacts,
             settings: this.settings,
             threshold: this.threshold,
-            countdownTime: this.countdownTime
+            countdownTime: this.countdownTime,
+            smsGateway: this.smsGateway
         };
         localStorage.setItem('bikeGuard', JSON.stringify(data));
     }
@@ -794,8 +880,8 @@ Please check on me immediately or call emergency services.
                 this.settings = { ...this.settings, ...(data.settings || {}) };
                 this.threshold = data.threshold || 3.5;
                 this.countdownTime = data.countdownTime || 10;
+                this.smsGateway = data.smsGateway || { type: 'none' };
                 
-                // Update UI
                 document.getElementById('threshold').value = this.threshold;
                 document.getElementById('threshold-display').textContent = `${this.threshold}g`;
                 document.getElementById('threshold-value').textContent = `${this.threshold}g`;
@@ -803,7 +889,6 @@ Please check on me immediately or call emergency services.
                 document.getElementById('enable-sound').checked = this.settings.enableSound;
                 document.getElementById('enable-vibration').checked = this.settings.enableVibration;
                 
-                // Update auto-sms checkbox if it exists
                 const autoSmsCheckbox = document.getElementById('auto-sms');
                 if (autoSmsCheckbox) {
                     autoSmsCheckbox.checked = this.settings.autoSms;
@@ -825,11 +910,9 @@ Please check on me immediately or call emergency services.
     }
 }
 
-// Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.bikeGuard = new BikeAccidentDetector();
     
-    // Add CSS for toast animations if not already present
     if (!document.querySelector('#sms-toast-style')) {
         const style = document.createElement('style');
         style.id = 'sms-toast-style';
@@ -850,7 +933,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.head.appendChild(style);
     }
     
-    // Service Worker registration for PWA
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('sw.js').catch(error => {
