@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#dc2626">
+    <meta name="description" content="Bike Accident Detection System - Automatic SMS Emergency Alerts">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚲</text></svg>">
+    <title>BikeGuard - Automatic SMS Emergency Alerts</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <i class="fas fa-satellite-dish"></i>
+                <span id="gps-status">Getting GPS...</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-sensor"></i>
+                <span id="sensor-status">Sensors: Checking</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-battery-full"></i>
+                <span id="battery-status">Battery: --%</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-sms"></i>
+                <span id="sms-status">SMS: Ready</span>
+            </div>
+        </div>
+
+        <!-- Main Dashboard -->
+        <div class="dashboard" id="dashboard">
+            <div class="app-icon">
+                <i class="fas fa-bicycle"></i>
+            </div>
+            
+            <h1>BikeGuard</h1>
+            <p class="subtitle">Automatic SMS Emergency Alerts</p>
+            
+            <!-- System Status -->
+            <div class="status-card">
+                <div class="status-header">
+                    <i class="fas fa-shield-alt"></i>
+                    <h3>System Status</h3>
+                </div>
+                <div class="status-content">
+                    <div class="status-indicator" id="system-status">
+                        <div class="indicator inactive"></div>
+                        <span>INACTIVE</span>
+                    </div>
+                    <button class="btn btn-primary" id="toggle-system">
+                        <i class="fas fa-power-off"></i> Start Protection
+                    </button>
+                </div>
+            </div>
+
+            <!-- Impact Monitor -->
+            <div class="card">
+                <h3><i class="fas fa-wave-square"></i> Impact Monitor</h3>
+                <div class="sensor-readings">
+                    <div class="sensor">
+                        <label>Acceleration</label>
+                        <div class="value" id="acceleration">0.00 g</div>
+                    </div>
+                    <div class="sensor">
+                        <label>Impact Force</label>
+                        <div class="value" id="impact-force">0.00 g</div>
+                    </div>
+                    <div class="sensor">
+                        <label>Last Jerk</label>
+                        <div class="value" id="last-jerk">0.00 g</div>
+                    </div>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-label">
+                        <span>Impact Threshold</span>
+                        <span id="threshold-value">3.5g</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="impact-progress"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Emergency Contacts -->
+            <div class="card">
+                <h3><i class="fas fa-users"></i> Emergency Contacts</h3>
+                <div class="contacts-list" id="contacts-list">
+                    <div class="empty-contacts">
+                        <i class="fas fa-user-plus"></i>
+                        <p>No contacts added yet</p>
+                    </div>
+                </div>
+                <button class="btn btn-secondary" id="add-contact">
+                    <i class="fas fa-plus"></i> Add Contact
+                </button>
+            </div>
+
+            <!-- Settings -->
+            <div class="card">
+                <h3><i class="fas fa-cog"></i> Settings</h3>
+                <div class="settings">
+                    <div class="setting-item">
+                        <label for="threshold">Impact Sensitivity</label>
+                        <div class="slider-container">
+                            <input type="range" id="threshold" min="2" max="8" step="0.5" value="3.5">
+                            <span class="slider-value" id="threshold-display">3.5g</span>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label for="countdown-time">Countdown Time</label>
+                        <select id="countdown-time">
+                            <option value="5">5 seconds</option>
+                            <option value="10" selected>10 seconds</option>
+                            <option value="15">15 seconds</option>
+                            <option value="20">20 seconds</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="enable-sound" checked>
+                            Enable Alarm Sound
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="enable-vibration" checked>
+                            Enable Vibration
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="auto-sms" checked>
+                            Auto-Send SMS (No confirmation)
+                        </label>
+                        <span class="info-tooltip" title="When enabled, SMS sends automatically after countdown. When disabled, opens SMS app for manual send.">ⓘ</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Test Button -->
+            <button class="btn btn-test" id="test-alert">
+                <i class="fas fa-vial"></i> Test Alert System
+            </button>
+
+            <!-- Install PWA Button -->
+            <button class="btn btn-install" id="install-btn" style="display: none;">
+                <i class="fas fa-download"></i> Install App
+            </button>
+        </div>
+
+        <!-- Countdown Overlay -->
+        <div class="overlay" id="countdown-overlay">
+            <div class="countdown-modal">
+                <div class="countdown-header">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h2>ACCIDENT DETECTED!</h2>
+                </div>
+                <div class="countdown-body">
+                    <p>Are you okay? The system detected a significant impact.</p>
+                    <div class="countdown-display">
+                        <div class="countdown-circle">
+                            <span id="countdown-timer">10</span>
+                        </div>
+                        <p class="countdown-text">Seconds until alert is sent</p>
+                    </div>
+                    <div class="location-info">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <span id="location-info">Getting your location...</span>
+                    </div>
+                    <div class="sms-progress" id="sms-progress" style="display: none;">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <span>Sending SMS alerts...</span>
+                    </div>
+                </div>
+                <div class="countdown-actions">
+                    <button class="btn btn-cancel" id="cancel-alert">
+                        <i class="fas fa-times"></i> I'M OKAY (Cancel)
+                    </button>
+                    <button class="btn btn-emergency" id="send-now">
+                        <i class="fas fa-first-aid"></i> NEED HELP (Send Now)
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Contact Modal -->
+        <div class="overlay" id="contact-modal">
+            <div class="modal">
+                <h3><i class="fas fa-user-plus"></i> Add Emergency Contact</h3>
+                <div class="form-group">
+                    <label for="contact-name">Name</label>
+                    <input type="text" id="contact-name" placeholder="Contact Name">
+                </div>
+                <div class="form-group">
+                    <label for="contact-phone">Phone Number</label>
+                    <input type="tel" id="contact-phone" placeholder="+1234567890">
+                </div>
+                <div class="form-group">
+                    <label for="contact-method">SMS Method</label>
+                    <select id="contact-method">
+                        <option value="auto">Auto SMS (Uses your plan - Recommended)</option>
+                        <option value="manual">Manual SMS (Opens messaging app)</option>
+                    </select>
+                    <small class="help-text">Auto sends automatically after countdown. Manual requires you to tap send.</small>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" id="cancel-contact">Cancel</button>
+                    <button class="btn btn-primary" id="save-contact">Save Contact</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- SMS Status Toast (Hidden by default) -->
+        <div id="sms-toast" class="sms-toast" style="display: none;">
+            <div class="sms-toast-content">
+                <i class="fas fa-check-circle"></i>
+                <span id="sms-toast-message"></span>
+            </div>
+        </div>
+    </div>
+
+    <audio id="alarm-sound" loop>
+        <source src="https://assets.mixkit.co/sfx/preview/mixkit-alarm-digital-clock-beep-989.mp3" type="audio/mpeg">
+    </audio>
+
+    <style>
+        /* Additional styles for SMS features */
+        .info-tooltip {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            background: var(--text-secondary);
+            color: var(--background);
+            border-radius: 50%;
+            text-align: center;
+            line-height: 18px;
+            font-size: 12px;
+            margin-left: 8px;
+            cursor: help;
+        }
+        
+        .help-text {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        
+        .sms-progress {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: white;
+        }
+        
+        .sms-progress i {
+            margin-right: 8px;
+        }
+        
+        .sms-toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--success);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 10001;
+            animation: slideUp 0.3s ease;
+        }
+        
+        .sms-toast-content {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .sms-toast.error {
+            background: var(--danger);
+        }
+        
+        .sms-toast.warning {
+            background: var(--warning);
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translate(-50%, 20px);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, 0);
+            }
+        }
+        
+        /* SMS status indicator in status bar */
+        #sms-status {
+            color: var(--success);
+        }
+        
+        #sms-status.sending {
+            color: var(--warning);
+            animation: pulse 1.5s infinite;
+        }
+        
+        #sms-status.error {
+            color: var(--danger);
+        }
+        
+        .contact-item .sms-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            background: var(--secondary);
+            color: white;
+            margin-left: 8px;
+        }
+        
+        .contact-item .sms-badge.auto {
+            background: var(--success);
+        }
+        
+        .contact-item .sms-badge.manual {
+            background: var(--warning);
+        }
+    </style>
+
+    <script src="app.js"></script>
+</body>
+</html>
