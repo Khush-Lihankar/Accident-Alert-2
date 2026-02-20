@@ -1,6 +1,6 @@
 /**
  * MADS - Mobile Accident Detection System
- * Uses CallMeBot for automatic WhatsApp alerts
+ * Uses Telegram Bot for automatic alerts
  */
 
 class MADS {
@@ -17,13 +17,13 @@ class MADS {
         this.settings = {
             enableSound: true,
             enableVibration: true,
-            notificationMethod: 'whatsapp'
+            notificationMethod: 'telegram'
         };
         
-        // CallMeBot configuration
-        this.callmebot = {
-            apiKey: localStorage.getItem('mads_callmebot_apikey') || '',
-            phoneNumber: localStorage.getItem('mads_callmebot_phone') || '',
+        // Telegram Bot configuration
+        this.telegram = {
+            botToken: localStorage.getItem('mads_telegram_token') || '',
+            chatIds: JSON.parse(localStorage.getItem('mads_telegram_chats') || '[]'),
             isConfigured: false
         };
         
@@ -35,64 +35,64 @@ class MADS {
         this.loadData();
         this.setupEventListeners();
         await this.requestPermissions();
-        this.checkCallMeBotConfig();
+        this.checkTelegramConfig();
         this.updateUI();
         console.log('MADS initialized - Mobile Accident Detection System');
     }
     
-    checkCallMeBotConfig() {
-        this.callmebot.isConfigured = !!(this.callmebot.apiKey && this.callmebot.phoneNumber);
+    checkTelegramConfig() {
+        this.telegram.isConfigured = !!(this.telegram.botToken && this.telegram.chatIds.length > 0);
         
-        const whatsappStatus = document.getElementById('whatsapp-status');
-        if (whatsappStatus) {
-            if (this.callmebot.isConfigured) {
-                whatsappStatus.innerHTML = '<i class="fab fa-whatsapp" style="color: #25D366;"></i> WhatsApp: Ready';
-                whatsappStatus.style.color = '#25D366';
+        const telegramStatus = document.getElementById('telegram-status');
+        if (telegramStatus) {
+            if (this.telegram.isConfigured) {
+                telegramStatus.innerHTML = '<i class="fab fa-telegram" style="color: #0088cc;"></i> Telegram: Ready';
+                telegramStatus.style.color = '#0088cc';
                 
                 // Remove setup button if exists
-                const setupBtn = document.getElementById('whatsapp-setup-btn');
+                const setupBtn = document.getElementById('telegram-setup-btn');
                 if (setupBtn) setupBtn.remove();
             } else {
-                whatsappStatus.innerHTML = '<i class="fab fa-whatsapp"></i> WhatsApp: Setup needed';
-                whatsappStatus.style.color = 'var(--warning)';
-                this.showWhatsAppSetupPrompt();
+                telegramStatus.innerHTML = '<i class="fab fa-telegram"></i> Telegram: Setup needed';
+                telegramStatus.style.color = 'var(--warning)';
+                this.showTelegramSetupPrompt();
             }
         }
     }
     
-    showWhatsAppSetupPrompt() {
+    showTelegramSetupPrompt() {
         // Remove existing button if any
-        const existingBtn = document.getElementById('whatsapp-setup-btn');
+        const existingBtn = document.getElementById('telegram-setup-btn');
         if (existingBtn) existingBtn.remove();
         
         const setupBtn = document.createElement('button');
-        setupBtn.id = 'whatsapp-setup-btn';
+        setupBtn.id = 'telegram-setup-btn';
         setupBtn.className = 'btn btn-secondary';
-        setupBtn.innerHTML = '<i class="fab fa-whatsapp"></i> Setup WhatsApp Alerts';
-        setupBtn.onclick = () => this.showWhatsAppSetupModal();
+        setupBtn.innerHTML = '<i class="fab fa-telegram"></i> Setup Telegram Bot (Free & Automatic)';
+        setupBtn.onclick = () => this.showTelegramSetupModal();
         
-        // Find a good place to insert the button
+        // Add after contacts card
         const contactsCard = document.querySelector('.card:has(.contacts-list)');
         if (contactsCard) {
             contactsCard.parentNode.insertBefore(setupBtn, contactsCard.nextSibling);
         }
     }
     
-    showWhatsAppSetupModal() {
+    showTelegramSetupModal() {
         // Remove any existing modal
-        const existingModal = document.getElementById('whatsapp-setup-modal');
+        const existingModal = document.getElementById('telegram-setup-modal');
         if (existingModal) existingModal.remove();
         
         const modal = document.createElement('div');
         modal.className = 'overlay';
-        modal.id = 'whatsapp-setup-modal';
+        modal.id = 'telegram-setup-modal';
         modal.style.display = 'flex';
         
         modal.innerHTML = `
-            <div class="modal whatsapp-setup-modal">
+            <div class="modal telegram-setup-modal">
                 <div class="modal-header">
-                    <i class="fab fa-whatsapp" style="color: #25D366; font-size: 2rem;"></i>
-                    <h2>Setup WhatsApp Alerts</h2>
+                    <i class="fab fa-telegram" style="color: #0088cc; font-size: 3rem;"></i>
+                    <h2>Setup Telegram Bot Alerts</h2>
                     <p class="subtitle">MADS - Mobile Accident Detection System</p>
                 </div>
                 
@@ -100,12 +100,12 @@ class MADS {
                     <div class="step">
                         <div class="step-number">1</div>
                         <div class="step-content">
-                            <h4>Save CallMeBot Number</h4>
-                            <p>Add this number to your phone contacts:</p>
+                            <h4>Create a Telegram Bot</h4>
+                            <p>Open Telegram and search for <strong>@BotFather</strong></p>
                             <div class="info-box">
-                                <code>+34 644 51 95 23</code>
-                                <button class="copy-btn" onclick="navigator.clipboard.writeText('+34644519523'); this.innerHTML='<i class=\\'fas fa-check\\'></i> Copied!'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i> Copy', 2000)">
-                                    <i class="fas fa-copy"></i> Copy
+                                <code>@BotFather</code>
+                                <button class="copy-btn" onclick="window.open('https://t.me/botfather')">
+                                    <i class="fab fa-telegram"></i> Open BotFather
                                 </button>
                             </div>
                         </div>
@@ -114,54 +114,81 @@ class MADS {
                     <div class="step">
                         <div class="step-number">2</div>
                         <div class="step-content">
-                            <h4>Send Activation Message</h4>
-                            <p>Open WhatsApp and send this exact message:</p>
+                            <h4>Create New Bot</h4>
+                            <p>Send this command to BotFather:</p>
                             <div class="info-box">
-                                <code>"I allow callmebot to send me messages"</code>
-                                <button class="copy-btn" onclick="navigator.clipboard.writeText('I allow callmebot to send me messages'); this.innerHTML='<i class=\\'fas fa-check\\'></i> Copied!'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i> Copy', 2000)">
+                                <code>/newbot</code>
+                                <button class="copy-btn" onclick="navigator.clipboard.writeText('/newbot'); this.innerHTML='<i class=\\'fas fa-check\\'></i> Copied!'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i> Copy', 2000)">
                                     <i class="fas fa-copy"></i> Copy
                                 </button>
                             </div>
-                            <button class="btn btn-primary" style="margin-top: 10px;" onclick="window.open('https://wa.me/34644519523?text=' + encodeURIComponent('I allow callmebot to send me messages'))">
-                                <i class="fab fa-whatsapp"></i> Open WhatsApp
-                            </button>
+                            <p class="small">Then follow the instructions:</p>
+                            <ul class="instruction-list">
+                                <li>Choose a name for your bot (e.g., MADS Alert)</li>
+                                <li>Choose a username (must end in 'bot', e.g., mads_alert_bot)</li>
+                            </ul>
                         </div>
                     </div>
                     
                     <div class="step">
                         <div class="step-number">3</div>
                         <div class="step-content">
-                            <h4>Enter Your Details</h4>
-                            <p>You'll receive an API key from CallMeBot. Enter it below:</p>
+                            <h4>Get Your Bot Token</h4>
+                            <p>After creating the bot, BotFather will give you a token like:</p>
+                            <div class="info-box token-example">
+                                <code>1234567890:ABCdefGHIjklMNOpqrsTUVwxyz</code>
+                            </div>
+                            <p class="small">This is your bot token - keep it secret!</p>
                             
                             <div class="input-group">
-                                <label for="callmebot-phone">Your WhatsApp Number</label>
-                                <input type="tel" id="callmebot-phone" placeholder="e.g., 5511999999999" value="${this.callmebot.phoneNumber}">
-                                <small>Include country code without + or spaces (e.g., 1 for USA, 44 for UK)</small>
+                                <label for="telegram-token">Paste Your Bot Token Here</label>
+                                <input type="text" id="telegram-token" placeholder="e.g., 1234567890:ABCdefGHIjklMNOpqrsTUVwxyz" value="${this.telegram.botToken}">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="step">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <h4>Get Your Chat ID</h4>
+                            <p>Start a chat with your bot and send any message, then click:</p>
+                            <button class="btn btn-primary" onclick="mads.getTelegramChatId()">
+                                <i class="fas fa-sync"></i> Get My Chat ID
+                            </button>
+                            <div id="chat-id-result" style="margin-top: 10px;"></div>
+                            
+                            <div class="input-group" id="chat-id-input-group" style="display: none;">
+                                <label for="telegram-chatid">Your Chat ID</label>
+                                <input type="text" id="telegram-chatid" placeholder="e.g., 123456789">
+                                <button class="btn btn-secondary" onclick="mads.addChatId()">
+                                    <i class="fas fa-plus"></i> Add Chat ID
+                                </button>
                             </div>
                             
-                            <div class="input-group">
-                                <label for="callmebot-apikey">CallMeBot API Key</label>
-                                <input type="text" id="callmebot-apikey" placeholder="e.g., 123456" value="${this.callmebot.apiKey}">
-                                <small>The number you received from CallMeBot</small>
+                            <div id="saved-chats" class="saved-chats">
+                                ${this.renderSavedChats()}
                             </div>
                         </div>
                     </div>
                 </div>
                 
                 <div class="test-section">
-                    <button class="btn btn-test" onclick="mads.testWhatsApp()">
-                        <i class="fas fa-vial"></i> Test WhatsApp Setup
+                    <button class="btn btn-test" onclick="mads.testTelegram()">
+                        <i class="fas fa-vial"></i> Test Telegram Connection
                     </button>
                 </div>
                 
                 <div class="modal-actions">
-                    <button class="btn btn-secondary" onclick="document.getElementById('whatsapp-setup-modal').remove()">
-                        Cancel
+                    <button class="btn btn-secondary" onclick="document.getElementById('telegram-setup-modal').remove()">
+                        Close
                     </button>
-                    <button class="btn btn-primary" onclick="mads.saveWhatsAppConfig()">
+                    <button class="btn btn-primary" onclick="mads.saveTelegramConfig()">
                         <i class="fas fa-save"></i> Save Configuration
                     </button>
+                </div>
+                
+                <div class="note">
+                    <small><i class="fas fa-info-circle"></i> Once configured, alerts will be sent automatically via Telegram to all added chat IDs</small>
                 </div>
             </div>
         `;
@@ -169,74 +196,201 @@ class MADS {
         document.body.appendChild(modal);
     }
     
-    async testWhatsApp() {
-        const phone = document.getElementById('callmebot-phone')?.value.trim();
-        const apiKey = document.getElementById('callmebot-apikey')?.value.trim();
-        
-        if (!phone || !apiKey) {
-            this.showToast('Please enter your phone number and API key first', 'warning');
-            return;
+    renderSavedChats() {
+        if (this.telegram.chatIds.length === 0) {
+            return '<p class="small">No chat IDs saved yet</p>';
         }
         
-        const testMessage = `🔧 MADS Test Message\n\nYour WhatsApp setup is working! You'll receive emergency alerts here when accidents are detected.`;
-        const encodedMessage = encodeURIComponent(testMessage);
-        const url = `https://api.callmebot.com/whatsapp.php?phone=${phone}&text=${encodedMessage}&apikey=${apiKey}`;
+        return `
+            <p><strong>Saved Chat IDs:</strong></p>
+            ${this.telegram.chatIds.map((chatId, index) => `
+                <div class="chat-id-item">
+                    <code>${chatId}</code>
+                    <button class="delete-chat" onclick="mads.removeChatId(${index})">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `).join('')}
+        `;
+    }
+    
+    async getTelegramChatId() {
+        if (!this.telegram.botToken) {
+            document.getElementById('chat-id-result').innerHTML = `
+                <div class="warning-message">
+                    Please enter your bot token first
+                </div>
+            `;
+            return;
+        }
         
         try {
-            this.showToast('Sending test message...', 'info');
-            const response = await fetch(url);
-            const text = await response.text();
+            const response = await fetch(`https://api.telegram.org/bot${this.telegram.botToken}/getUpdates`);
+            const data = await response.json();
             
-            if (response.status === 200 && text.includes('Message sent')) {
-                this.showToast('✅ Test message sent! Check your WhatsApp', 'success');
+            if (data.ok && data.result.length > 0) {
+                const chatId = data.result[0].message.chat.id;
+                document.getElementById('chat-id-result').innerHTML = `
+                    <div class="success-message">
+                        Found your chat ID: <strong>${chatId}</strong>
+                    </div>
+                `;
+                
+                // Show the input with this ID
+                document.getElementById('chat-id-input-group').style.display = 'block';
+                document.getElementById('telegram-chatid').value = chatId;
             } else {
-                this.showToast('❌ Test failed. Check your API key and phone number', 'error');
+                document.getElementById('chat-id-result').innerHTML = `
+                    <div class="warning-message">
+                        No messages found. Please send a message to your bot first, then try again.
+                        <br><br>
+                        <button class="btn btn-primary" onclick="window.open('https://t.me/${this.getBotUsername()}')">
+                            <i class="fab fa-telegram"></i> Open Your Bot
+                        </button>
+                    </div>
+                `;
             }
         } catch (error) {
-            this.showToast('❌ Network error. Please try again', 'error');
+            document.getElementById('chat-id-result').innerHTML = `
+                <div class="error-message">
+                    Error: ${error.message}. Check your bot token.
+                </div>
+            `;
         }
     }
     
-    saveWhatsAppConfig() {
-        const phone = document.getElementById('callmebot-phone')?.value.trim();
-        const apiKey = document.getElementById('callmebot-apikey')?.value.trim();
+    getBotUsername() {
+        // Extract username from token (optional)
+        return 'your_bot'; // User will need to know their bot username
+    }
+    
+    addChatId() {
+        const chatId = document.getElementById('telegram-chatid')?.value.trim();
         
-        if (!phone || !apiKey) {
-            this.showToast('Please enter both phone number and API key', 'error');
+        if (!chatId) {
+            this.showToast('Please enter a chat ID', 'warning');
             return;
         }
         
-        // Clean phone number (remove all non-digits)
-        const cleanPhone = phone.replace(/\D/g, '');
+        if (!this.telegram.chatIds.includes(chatId)) {
+            this.telegram.chatIds.push(chatId);
+            this.saveTelegramConfig();
+            
+            // Update the saved chats display
+            const savedChatsDiv = document.getElementById('saved-chats');
+            if (savedChatsDiv) {
+                savedChatsDiv.innerHTML = this.renderSavedChats();
+            }
+            
+            document.getElementById('telegram-chatid').value = '';
+            this.showToast('Chat ID added successfully', 'success');
+        } else {
+            this.showToast('Chat ID already exists', 'warning');
+        }
+    }
+    
+    removeChatId(index) {
+        this.telegram.chatIds.splice(index, 1);
+        this.saveTelegramConfig();
         
-        if (cleanPhone.length < 10) {
-            this.showToast('Please enter a valid phone number with country code', 'error');
-            return;
+        // Update the saved chats display
+        const savedChatsDiv = document.getElementById('saved-chats');
+        if (savedChatsDiv) {
+            savedChatsDiv.innerHTML = this.renderSavedChats();
         }
         
-        this.callmebot.phoneNumber = cleanPhone;
-        this.callmebot.apiKey = apiKey;
-        this.callmebot.isConfigured = true;
+        this.showToast('Chat ID removed', 'success');
+    }
+    
+    saveTelegramConfig() {
+        const token = document.getElementById('telegram-token')?.value.trim();
         
-        // Save to localStorage
-        localStorage.setItem('mads_callmebot_phone', cleanPhone);
-        localStorage.setItem('mads_callmebot_apikey', apiKey);
+        if (token) {
+            this.telegram.botToken = token;
+        }
         
-        // Remove modal
-        document.getElementById('whatsapp-setup-modal')?.remove();
+        localStorage.setItem('mads_telegram_token', this.telegram.botToken);
+        localStorage.setItem('mads_telegram_chats', JSON.stringify(this.telegram.chatIds));
+        
+        this.telegram.isConfigured = !!(this.telegram.botToken && this.telegram.chatIds.length > 0);
+        
+        // Remove modal if open
+        document.getElementById('telegram-setup-modal')?.remove();
         
         // Update UI
-        this.checkCallMeBotConfig();
-        this.showToast('✅ WhatsApp configured successfully!', 'success');
+        this.checkTelegramConfig();
+        this.showToast('Telegram configuration saved!', 'success');
         
-        // Send confirmation message
-        this.sendTestConfirmation();
+        // Send test message
+        if (this.telegram.isConfigured) {
+            setTimeout(() => this.sendTelegramMessage('System', '✅ MADS Telegram bot configured successfully!'), 1000);
+        }
     }
     
-    async sendTestConfirmation() {
-        const message = `✅ *MADS Setup Complete* ✅\n\nMobile Accident Detection System is now configured to send alerts to this WhatsApp number.\n\nYou will be notified immediately if an accident is detected. Stay safe! 🚲`;
+    async testTelegram() {
+        if (!this.telegram.botToken || this.telegram.chatIds.length === 0) {
+            this.showToast('Please configure bot token and add at least one chat ID first', 'warning');
+            return;
+        }
         
-        await this.sendWhatsAppMessage(this.contacts[0]?.name || 'User', message);
+        const testMessage = `🔧 *MADS Test Message* 🔧\n\nYour Telegram bot is working! You'll receive emergency alerts here when accidents are detected.\n\n🚲 *Mobile Accident Detection System*`;
+        
+        this.showToast('📤 Sending test message...', 'info');
+        
+        let successCount = 0;
+        
+        for (const chatId of this.telegram.chatIds) {
+            const sent = await this.sendTelegramMessageToChat(chatId, testMessage);
+            if (sent) successCount++;
+        }
+        
+        if (successCount > 0) {
+            this.showToast(`✅ Test message sent to ${successCount} chat(s)!`, 'success');
+        } else {
+            this.showToast('❌ Test failed. Check your bot token', 'error');
+        }
+    }
+    
+    async sendTelegramMessage(contactName, message) {
+        let successCount = 0;
+        
+        for (const chatId of this.telegram.chatIds) {
+            const sent = await this.sendTelegramMessageToChat(chatId, message);
+            if (sent) successCount++;
+        }
+        
+        return successCount > 0;
+    }
+    
+    async sendTelegramMessageToChat(chatId, message) {
+        const url = `https://api.telegram.org/bot${this.telegram.botToken}/sendMessage`;
+        
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    chat_id: chatId,
+                    text: message,
+                    parse_mode: 'Markdown'
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.ok) {
+                console.log(`MADS: Telegram message sent to chat ${chatId}`);
+                return true;
+            } else {
+                console.error('MADS: Telegram API error', data);
+                return false;
+            }
+        } catch (error) {
+            console.error('MADS: Failed to send Telegram message', error);
+            return false;
+        }
     }
     
     setupPWA() {
@@ -291,15 +445,6 @@ class MADS {
             this.settings.enableVibration = e.target.checked;
             this.saveSettings();
         });
-        
-        const methodSelect = document.getElementById('notification-method');
-        if (methodSelect) {
-            methodSelect.value = this.settings.notificationMethod;
-            methodSelect.addEventListener('change', (e) => {
-                this.settings.notificationMethod = e.target.value;
-                this.saveSettings();
-            });
-        }
         
         if ('getBattery' in navigator) {
             navigator.getBattery().then(battery => {
@@ -359,7 +504,7 @@ class MADS {
                         longitude: position.coords.longitude,
                         accuracy: position.coords.accuracy
                     };
-                    document.getElementById('gps-status').textHTML = '<i class="fas fa-check-circle" style="color: var(--success);"></i> GPS: Active';
+                    document.getElementById('gps-status').innerHTML = '<i class="fas fa-check-circle" style="color: var(--success);"></i> GPS: Active';
                 },
                 (error) => {
                     console.error('MADS: GPS Error', error);
@@ -405,16 +550,6 @@ class MADS {
         const progress = Math.min((gForce / this.threshold) * 100, 100);
         document.getElementById('impact-progress').style.width = `${progress}%`;
         document.getElementById('impact-force').textContent = `${gForce.toFixed(2)} g`;
-        
-        // Update impact color based on severity
-        const progressFill = document.getElementById('impact-progress');
-        if (gForce > this.threshold) {
-            progressFill.style.background = 'linear-gradient(90deg, var(--warning), var(--primary))';
-        } else if (gForce > this.threshold * 0.7) {
-            progressFill.style.background = 'linear-gradient(90deg, var(--safe), var(--warning))';
-        } else {
-            progressFill.style.background = 'linear-gradient(90deg, var(--safe), var(--warning), var(--primary))';
-        }
     }
     
     detectImpact(gForce) {
@@ -500,32 +635,25 @@ class MADS {
         }
         
         let successCount = 0;
-        let failCount = 0;
         
-        for (const contact of this.contacts) {
-            if (this.settings.notificationMethod === 'whatsapp' && this.callmebot.isConfigured) {
-                const sent = await this.sendWhatsAppAlert(contact);
-                if (sent) {
-                    successCount++;
-                } else {
-                    failCount++;
-                }
-            } else {
-                // Fallback to SMS
-                this.sendSMSFallback(contact);
-                failCount++;
-            }
-            await this.delay(1000);
+        // Send via Telegram if configured
+        if (this.telegram.isConfigured) {
+            const message = this.createTelegramMessage();
+            const sent = await this.sendTelegramMessage('Emergency', message);
+            if (sent) successCount = this.telegram.chatIds.length;
+        } else {
+            this.showToast('⚠️ Telegram not configured - please setup first', 'warning');
+            this.showTelegramSetupPrompt();
         }
         
         this.hideProgress();
         
         if (successCount > 0) {
-            this.showToast(`✅ MADS: WhatsApp alert sent to ${successCount} contact(s)`, 'success');
+            this.showToast(`✅ MADS: Telegram alert sent to ${successCount} recipient(s)`, 'success');
         }
         
-        if (failCount > 0) {
-            this.showToast(`⚠️ MADS: ${failCount} alert(s) failed - check WhatsApp setup`, 'warning');
+        if (successCount === 0) {
+            this.showToast('⚠️ No recipients configured - add chat IDs first', 'warning');
         }
         
         this.hideCountdownOverlay();
@@ -533,58 +661,19 @@ class MADS {
         this.updateUI();
     }
     
-    async sendWhatsAppAlert(contact) {
-        if (!this.callmebot.isConfigured) {
-            this.showToast('⚠️ WhatsApp not configured', 'warning');
-            return false;
-        }
-        
-        const message = this.createWhatsAppMessage(contact.name);
-        return await this.sendWhatsAppMessage(contact.name, message);
-    }
-    
-    async sendWhatsAppMessage(contactName, message) {
-        const encodedMessage = encodeURIComponent(message);
-        const url = `https://api.callmebot.com/whatsapp.php?phone=${this.callmebot.phoneNumber}&text=${encodedMessage}&apikey=${this.callmebot.apiKey}`;
-        
-        try {
-            const response = await fetch(url);
-            const responseText = await response.text();
-            
-            if (response.status === 200 && responseText.includes('Message sent')) {
-                console.log(`MADS: WhatsApp alert sent to ${contactName}`);
-                return true;
-            } else {
-                console.error('MADS: WhatsApp API error', responseText);
-                return false;
-            }
-        } catch (error) {
-            console.error('MADS: Failed to send WhatsApp', error);
-            return false;
-        }
-    }
-    
-    sendSMSFallback(contact) {
-        const message = this.createEmergencyMessage(contact.name);
-        const smsUri = `sms:${contact.phone}?body=${encodeURIComponent(message)}`;
-        window.open(smsUri, '_blank');
-    }
-    
-    createWhatsAppMessage(contactName) {
+    createTelegramMessage() {
         const time = new Date().toLocaleTimeString();
         const date = new Date().toLocaleDateString();
         const mapsLink = this.location ? 
             `https://maps.google.com/?q=${this.location.latitude},${this.location.longitude}` :
             'Location unavailable';
         
-        return `🚨 *MADS - MOBILE ACCIDENT DETECTION SYSTEM* 🚨
+        return `🚨 *MADS - EMERGENCY ALERT* 🚨
 
-*EMERGENCY ALERT!*
+*I've been in a bike accident and need immediate assistance!*
 
-I've been in a bike accident and need immediate assistance!
-
-📍 *Location:* ${mapsLink}
-📍 *Coordinates:* ${this.location?.latitude || 'N/A'}, ${this.location?.longitude || 'N/A'}
+📍 *Location:* [Open in Maps](${mapsLink})
+📍 *Coordinates:* \`${this.location?.latitude || 'N/A'}, ${this.location?.longitude || 'N/A'}\`
 🕒 *Time:* ${time}
 📅 *Date:* ${date}
 📊 *Accuracy:* ±${Math.round(this.location?.accuracy || 0)}m
@@ -592,18 +681,7 @@ I've been in a bike accident and need immediate assistance!
 Please check on me immediately or call emergency services.
 
 ---
-*MADS - Keeping riders safe* 🚲
-_This is an automated emergency alert_`;
-    }
-    
-    createEmergencyMessage(contactName) {
-        const time = new Date().toLocaleTimeString();
-        const date = new Date().toLocaleDateString();
-        const mapsLink = this.location ? 
-            `https://maps.google.com/?q=${this.location.latitude},${this.location.longitude}` :
-            'Location unavailable';
-        
-        return `MADS EMERGENCY: Bike accident at ${mapsLink} (${time} ${date})`;
+_Mobile Accident Detection System_ 🚲`;
     }
     
     async getCurrentLocation() {
@@ -783,8 +861,8 @@ _This is an automated emergency alert_`;
                 <div class="contact-info">
                     <h4>
                         ${contact.name}
-                        <span class="sms-badge whatsapp">
-                            <i class="fab fa-whatsapp"></i> WhatsApp
+                        <span class="sms-badge telegram">
+                            <i class="fab fa-telegram"></i> Telegram
                         </span>
                     </h4>
                     <p>${contact.phone}</p>
@@ -899,11 +977,6 @@ _This is an automated emergency alert_`;
                 document.getElementById('enable-sound').checked = this.settings.enableSound;
                 document.getElementById('enable-vibration').checked = this.settings.enableVibration;
                 
-                const methodSelect = document.getElementById('notification-method');
-                if (methodSelect) {
-                    methodSelect.value = this.settings.notificationMethod;
-                }
-                
                 this.renderContacts();
             } catch (e) {
                 console.error('MADS: Failed to load saved data', e);
@@ -983,39 +1056,39 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
-        .whatsapp-setup-modal {
+        .telegram-setup-modal {
             max-width: 600px;
             max-height: 80vh;
             overflow-y: auto;
         }
         
-        .whatsapp-setup-modal .modal-header {
+        .telegram-setup-modal .modal-header {
             text-align: center;
             margin-bottom: 20px;
         }
         
-        .whatsapp-setup-modal .modal-header h2 {
+        .telegram-setup-modal .modal-header h2 {
             margin: 10px 0 5px;
         }
         
-        .whatsapp-setup-modal .setup-steps {
+        .telegram-setup-modal .setup-steps {
             margin: 20px 0;
         }
         
-        .whatsapp-setup-modal .step {
+        .telegram-setup-modal .step {
             display: flex;
             gap: 15px;
             margin-bottom: 20px;
             padding: 15px;
-            background: rgba(37, 211, 102, 0.1);
+            background: rgba(0, 136, 204, 0.1);
             border-radius: 12px;
-            border-left: 4px solid #25D366;
+            border-left: 4px solid #0088cc;
         }
         
-        .whatsapp-setup-modal .step-number {
+        .telegram-setup-modal .step-number {
             width: 30px;
             height: 30px;
-            background: #25D366;
+            background: #0088cc;
             color: white;
             border-radius: 50%;
             display: flex;
@@ -1025,16 +1098,16 @@ document.addEventListener('DOMContentLoaded', () => {
             flex-shrink: 0;
         }
         
-        .whatsapp-setup-modal .step-content {
+        .telegram-setup-modal .step-content {
             flex: 1;
         }
         
-        .whatsapp-setup-modal .step-content h4 {
+        .telegram-setup-modal .step-content h4 {
             margin-bottom: 8px;
-            color: #25D366;
+            color: #0088cc;
         }
         
-        .whatsapp-setup-modal .info-box {
+        .telegram-setup-modal .info-box {
             background: var(--card-bg);
             padding: 12px;
             border-radius: 8px;
@@ -1045,14 +1118,14 @@ document.addEventListener('DOMContentLoaded', () => {
             border: 1px solid var(--border);
         }
         
-        .whatsapp-setup-modal .info-box code {
+        .telegram-setup-modal .info-box code {
             flex: 1;
             font-family: monospace;
             font-size: 14px;
             word-break: break-all;
         }
         
-        .whatsapp-setup-modal .copy-btn {
+        .telegram-setup-modal .copy-btn {
             background: var(--secondary);
             color: white;
             border: none;
@@ -1066,21 +1139,21 @@ document.addEventListener('DOMContentLoaded', () => {
             white-space: nowrap;
         }
         
-        .whatsapp-setup-modal .copy-btn:hover {
+        .telegram-setup-modal .copy-btn:hover {
             background: var(--secondary-dark);
         }
         
-        .whatsapp-setup-modal .input-group {
+        .telegram-setup-modal .input-group {
             margin: 15px 0;
         }
         
-        .whatsapp-setup-modal .input-group label {
+        .telegram-setup-modal .input-group label {
             display: block;
             margin-bottom: 5px;
             font-weight: 500;
         }
         
-        .whatsapp-setup-modal .input-group input {
+        .telegram-setup-modal .input-group input {
             width: 100%;
             padding: 10px;
             background: var(--card-bg);
@@ -1090,30 +1163,113 @@ document.addEventListener('DOMContentLoaded', () => {
             font-size: 14px;
         }
         
-        .whatsapp-setup-modal .input-group small {
+        .telegram-setup-modal .input-group small {
             display: block;
             color: var(--text-secondary);
             font-size: 11px;
             margin-top: 4px;
         }
         
-        .whatsapp-setup-modal .test-section {
+        .telegram-setup-modal .instruction-list {
+            margin: 10px 0;
+            padding-left: 20px;
+            color: var(--text-secondary);
+        }
+        
+        .telegram-setup-modal .instruction-list li {
+            margin-bottom: 5px;
+        }
+        
+        .telegram-setup-modal .token-example {
+            background: var(--background);
+            font-family: monospace;
+            word-break: break-all;
+        }
+        
+        .telegram-setup-modal .success-message {
+            background: rgba(22, 163, 74, 0.2);
+            color: var(--success);
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        
+        .telegram-setup-modal .warning-message {
+            background: rgba(234, 88, 12, 0.2);
+            color: var(--warning);
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        
+        .telegram-setup-modal .error-message {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        
+        .telegram-setup-modal .saved-chats {
+            margin-top: 15px;
+            padding: 10px;
+            background: var(--card-bg);
+            border-radius: 8px;
+        }
+        
+        .telegram-setup-modal .chat-id-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px;
+            background: var(--background);
+            border-radius: 4px;
+            margin-bottom: 5px;
+        }
+        
+        .telegram-setup-modal .chat-id-item code {
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .telegram-setup-modal .delete-chat {
+            background: none;
+            border: none;
+            color: var(--danger);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        
+        .telegram-setup-modal .delete-chat:hover {
+            background: rgba(239, 68, 68, 0.1);
+        }
+        
+        .telegram-setup-modal .test-section {
             margin: 20px 0;
             text-align: center;
         }
         
-        .whatsapp-setup-modal .modal-actions {
+        .telegram-setup-modal .modal-actions {
             display: flex;
             gap: 10px;
             margin-top: 20px;
         }
         
-        .whatsapp-setup-modal .modal-actions .btn {
+        .telegram-setup-modal .modal-actions .btn {
             flex: 1;
         }
         
-        .sms-badge.whatsapp {
-            background: #25D366;
+        .telegram-setup-modal .note {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(0, 136, 204, 0.1);
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .sms-badge.telegram {
+            background: #0088cc;
             color: white;
             padding: 2px 8px;
             border-radius: 12px;
@@ -1121,22 +1277,45 @@ document.addEventListener('DOMContentLoaded', () => {
             margin-left: 8px;
         }
         
-        .sms-badge.whatsapp i {
+        .sms-badge.telegram i {
             margin-right: 4px;
         }
         
-        #whatsapp-setup-btn {
+        #telegram-setup-btn {
             margin: 10px 0;
             width: 100%;
-            background: #25D366;
+            background: #0088cc;
             color: white;
+            font-weight: bold;
+            padding: 15px;
         }
         
-        #whatsapp-setup-btn:hover {
-            background: #128C7E;
+        #telegram-setup-btn:hover {
+            background: #006699;
+        }
+        
+        #telegram-setup-btn i {
+            font-size: 1.2rem;
+        }
+        
+        .small {
+            font-size: 12px;
+            color: var(--text-secondary);
         }
     `;
     document.head.appendChild(style);
+    
+    // Add Telegram status to status bar if not exists
+    if (!document.getElementById('telegram-status')) {
+        const statusBar = document.querySelector('.status-bar');
+        if (statusBar) {
+            const telegramStatus = document.createElement('div');
+            telegramStatus.className = 'status-item';
+            telegramStatus.id = 'telegram-status';
+            telegramStatus.innerHTML = '<i class="fab fa-telegram"></i> Telegram: Checking';
+            statusBar.appendChild(telegramStatus);
+        }
+    }
     
     // Service Worker
     if ('serviceWorker' in navigator) {
