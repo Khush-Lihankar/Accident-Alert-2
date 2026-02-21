@@ -1,29 +1,51 @@
 /**
  * MADS - Mobile Accident Detection System
- * Uses Telegram Bot for automatic alerts
+ * Features:
+ * - Speed-based auto-activation (>20 km/h)
+ * - Speed drop detection for crashes
+ * - Background monitoring with notifications
+ * - WhatsApp alerts via CallMeBot
  */
 
 class MADS {
     constructor() {
+        // System state
         this.isActive = false;
         this.isDetecting = false;
+        this.isBackgroundMode = false;
+        
+        // Detection parameters
+        this.threshold = 3.5; // g-force threshold
+        this.speedThreshold = 20; // km/h for auto-activation
+        this.speedDropThreshold = 25; // km/h drop to detect crash
+        this.countdownTime = 10; // seconds
+        
+        // Data history
         this.accelerationHistory = [];
-        this.maxHistoryLength = 10;
-        this.threshold = 3.5;
-        this.countdownTime = 10;
-        this.countdownInterval = null;
+        this.speedHistory = [];
+        this.maxHistoryLength = 20;
+        this.lastSpeed = 0;
+        this.speedDropTimer = null;
+        this.deactivationTimer = null;
+        
+        // Location and contacts
         this.location = null;
         this.contacts = [];
+        
+        // Countdown
+        this.countdownInterval = null;
+        
+        // Settings
         this.settings = {
             enableSound: true,
             enableVibration: true,
-            notificationMethod: 'telegram'
+            backgroundMonitoring: true
         };
         
-        // Telegram Bot configuration
-        this.telegram = {
-            botToken: localStorage.getItem('mads_telegram_token') || '',
-            chatIds: JSON.parse(localStorage.getItem('mads_telegram_chats') || '[]'),
+        // WhatsApp configuration
+        this.whatsapp = {
+            apiKey: localStorage.getItem('mads_whatsapp_apikey') || '',
+            phoneNumber: localStorage.getItem('mads_whatsapp_phone') || '',
             isConfigured: false
         };
         
@@ -35,404 +57,40 @@ class MADS {
         this.loadData();
         this.setupEventListeners();
         await this.requestPermissions();
-        this.checkTelegramConfig();
+        this.checkWhatsAppConfig();
+        this.startBackgroundMonitoring();
         this.updateUI();
         console.log('MADS initialized - Mobile Accident Detection System');
     }
     
-    checkTelegramConfig() {
-        this.telegram.isConfigured = !!(this.telegram.botToken && this.telegram.chatIds.length > 0);
-        
-        const telegramStatus = document.getElementById('telegram-status');
-        if (telegramStatus) {
-            if (this.telegram.isConfigured) {
-                telegramStatus.innerHTML = '<i class="fab fa-telegram" style="color: #0088cc;"></i> Telegram: Ready';
-                telegramStatus.style.color = '#0088cc';
-                
-                // Remove setup button if exists
-                const setupBtn = document.getElementById('telegram-setup-btn');
-                if (setupBtn) setupBtn.remove();
-            } else {
-                telegramStatus.innerHTML = '<i class="fab fa-telegram"></i> Telegram: Setup needed';
-                telegramStatus.style.color = 'var(--warning)';
-                this.showTelegramSetupPrompt();
-            }
-        }
-    }
-    
-    showTelegramSetupPrompt() {
-        // Remove existing button if any
-        const existingBtn = document.getElementById('telegram-setup-btn');
-        if (existingBtn) existingBtn.remove();
-        
-        const setupBtn = document.createElement('button');
-        setupBtn.id = 'telegram-setup-btn';
-        setupBtn.className = 'btn btn-secondary';
-        setupBtn.innerHTML = '<i class="fab fa-telegram"></i> Setup Telegram Bot (Free & Automatic)';
-        setupBtn.onclick = () => this.showTelegramSetupModal();
-        
-        // Add after contacts card
-        const contactsCard = document.querySelector('.card:has(.contacts-list)');
-        if (contactsCard) {
-            contactsCard.parentNode.insertBefore(setupBtn, contactsCard.nextSibling);
-        }
-    }
-    
-    showTelegramSetupModal() {
-        // Remove any existing modal
-        const existingModal = document.getElementById('telegram-setup-modal');
-        if (existingModal) existingModal.remove();
-        
-        const modal = document.createElement('div');
-        modal.className = 'overlay';
-        modal.id = 'telegram-setup-modal';
-        modal.style.display = 'flex';
-        
-        modal.innerHTML = `
-            <div class="modal telegram-setup-modal">
-                <div class="modal-header">
-                    <i class="fab fa-telegram" style="color: #0088cc; font-size: 3rem;"></i>
-                    <h2>Setup Telegram Bot Alerts</h2>
-                    <p class="subtitle">MADS - Mobile Accident Detection System</p>
-                </div>
-                
-                <div class="setup-steps">
-                    <div class="step">
-                        <div class="step-number">1</div>
-                        <div class="step-content">
-                            <h4>Create a Telegram Bot</h4>
-                            <p>Open Telegram and search for <strong>@BotFather</strong></p>
-                            <div class="info-box">
-                                <code>@BotFather</code>
-                                <button class="copy-btn" onclick="window.open('https://t.me/botfather')">
-                                    <i class="fab fa-telegram"></i> Open BotFather
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="step">
-                        <div class="step-number">2</div>
-                        <div class="step-content">
-                            <h4>Create New Bot</h4>
-                            <p>Send this command to BotFather:</p>
-                            <div class="info-box">
-                                <code>/newbot</code>
-                                <button class="copy-btn" onclick="navigator.clipboard.writeText('/newbot'); this.innerHTML='<i class=\\'fas fa-check\\'></i> Copied!'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i> Copy', 2000)">
-                                    <i class="fas fa-copy"></i> Copy
-                                </button>
-                            </div>
-                            <p class="small">Then follow the instructions:</p>
-                            <ul class="instruction-list">
-                                <li>Choose a name for your bot (e.g., MADS Alert)</li>
-                                <li>Choose a username (must end in 'bot', e.g., mads_alert_bot)</li>
-                            </ul>
-                        </div>
-                    </div>
-                    
-                    <div class="step">
-                        <div class="step-number">3</div>
-                        <div class="step-content">
-                            <h4>Get Your Bot Token</h4>
-                            <p>After creating the bot, BotFather will give you a token like:</p>
-                            <div class="info-box token-example">
-                                <code>1234567890:ABCdefGHIjklMNOpqrsTUVwxyz</code>
-                            </div>
-                            <p class="small">This is your bot token - keep it secret!</p>
-                            
-                            <div class="input-group">
-                                <label for="telegram-token">Paste Your Bot Token Here</label>
-                                <input type="text" id="telegram-token" placeholder="e.g., 1234567890:ABCdefGHIjklMNOpqrsTUVwxyz" value="${this.telegram.botToken}">
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="step">
-                        <div class="step-number">4</div>
-                        <div class="step-content">
-                            <h4>Get Your Chat ID</h4>
-                            <p>Start a chat with your bot and send any message, then click:</p>
-                            <button class="btn btn-primary" onclick="mads.getTelegramChatId()">
-                                <i class="fas fa-sync"></i> Get My Chat ID
-                            </button>
-                            <div id="chat-id-result" style="margin-top: 10px;"></div>
-                            
-                            <div class="input-group" id="chat-id-input-group" style="display: none;">
-                                <label for="telegram-chatid">Your Chat ID</label>
-                                <input type="text" id="telegram-chatid" placeholder="e.g., 123456789">
-                                <button class="btn btn-secondary" onclick="mads.addChatId()">
-                                    <i class="fas fa-plus"></i> Add Chat ID
-                                </button>
-                            </div>
-                            
-                            <div id="saved-chats" class="saved-chats">
-                                ${this.renderSavedChats()}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="test-section">
-                    <button class="btn btn-test" onclick="mads.testTelegram()">
-                        <i class="fas fa-vial"></i> Test Telegram Connection
-                    </button>
-                </div>
-                
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" onclick="document.getElementById('telegram-setup-modal').remove()">
-                        Close
-                    </button>
-                    <button class="btn btn-primary" onclick="mads.saveTelegramConfig()">
-                        <i class="fas fa-save"></i> Save Configuration
-                    </button>
-                </div>
-                
-                <div class="note">
-                    <small><i class="fas fa-info-circle"></i> Once configured, alerts will be sent automatically via Telegram to all added chat IDs</small>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-    }
-    
-    renderSavedChats() {
-        if (this.telegram.chatIds.length === 0) {
-            return '<p class="small">No chat IDs saved yet</p>';
-        }
-        
-        return `
-            <p><strong>Saved Chat IDs:</strong></p>
-            ${this.telegram.chatIds.map((chatId, index) => `
-                <div class="chat-id-item">
-                    <code>${chatId}</code>
-                    <button class="delete-chat" onclick="mads.removeChatId(${index})">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-            `).join('')}
-        `;
-    }
-    
-    async getTelegramChatId() {
-        if (!this.telegram.botToken) {
-            document.getElementById('chat-id-result').innerHTML = `
-                <div class="warning-message">
-                    Please enter your bot token first
-                </div>
-            `;
-            return;
-        }
-        
-        try {
-            const response = await fetch(`https://api.telegram.org/bot${this.telegram.botToken}/getUpdates`);
-            const data = await response.json();
-            
-            if (data.ok && data.result.length > 0) {
-                const chatId = data.result[0].message.chat.id;
-                document.getElementById('chat-id-result').innerHTML = `
-                    <div class="success-message">
-                        Found your chat ID: <strong>${chatId}</strong>
-                    </div>
-                `;
-                
-                // Show the input with this ID
-                document.getElementById('chat-id-input-group').style.display = 'block';
-                document.getElementById('telegram-chatid').value = chatId;
-            } else {
-                document.getElementById('chat-id-result').innerHTML = `
-                    <div class="warning-message">
-                        No messages found. Please send a message to your bot first, then try again.
-                        <br><br>
-                        <button class="btn btn-primary" onclick="window.open('https://t.me/${this.getBotUsername()}')">
-                            <i class="fab fa-telegram"></i> Open Your Bot
-                        </button>
-                    </div>
-                `;
-            }
-        } catch (error) {
-            document.getElementById('chat-id-result').innerHTML = `
-                <div class="error-message">
-                    Error: ${error.message}. Check your bot token.
-                </div>
-            `;
-        }
-    }
-    
-    getBotUsername() {
-        // Extract username from token (optional)
-        return 'your_bot'; // User will need to know their bot username
-    }
-    
-    addChatId() {
-        const chatId = document.getElementById('telegram-chatid')?.value.trim();
-        
-        if (!chatId) {
-            this.showToast('Please enter a chat ID', 'warning');
-            return;
-        }
-        
-        if (!this.telegram.chatIds.includes(chatId)) {
-            this.telegram.chatIds.push(chatId);
-            this.saveTelegramConfig();
-            
-            // Update the saved chats display
-            const savedChatsDiv = document.getElementById('saved-chats');
-            if (savedChatsDiv) {
-                savedChatsDiv.innerHTML = this.renderSavedChats();
-            }
-            
-            document.getElementById('telegram-chatid').value = '';
-            this.showToast('Chat ID added successfully', 'success');
-        } else {
-            this.showToast('Chat ID already exists', 'warning');
-        }
-    }
-    
-    removeChatId(index) {
-        this.telegram.chatIds.splice(index, 1);
-        this.saveTelegramConfig();
-        
-        // Update the saved chats display
-        const savedChatsDiv = document.getElementById('saved-chats');
-        if (savedChatsDiv) {
-            savedChatsDiv.innerHTML = this.renderSavedChats();
-        }
-        
-        this.showToast('Chat ID removed', 'success');
-    }
-    
-    saveTelegramConfig() {
-        const token = document.getElementById('telegram-token')?.value.trim();
-        
-        if (token) {
-            this.telegram.botToken = token;
-        }
-        
-        localStorage.setItem('mads_telegram_token', this.telegram.botToken);
-        localStorage.setItem('mads_telegram_chats', JSON.stringify(this.telegram.chatIds));
-        
-        this.telegram.isConfigured = !!(this.telegram.botToken && this.telegram.chatIds.length > 0);
-        
-        // Remove modal if open
-        document.getElementById('telegram-setup-modal')?.remove();
-        
-        // Update UI
-        this.checkTelegramConfig();
-        this.showToast('Telegram configuration saved!', 'success');
-        
-        // Send test message
-        if (this.telegram.isConfigured) {
-            setTimeout(() => this.sendTelegramMessage('System', '✅ MADS Telegram bot configured successfully!'), 1000);
-        }
-    }
-    
-    async testTelegram() {
-        if (!this.telegram.botToken || this.telegram.chatIds.length === 0) {
-            this.showToast('Please configure bot token and add at least one chat ID first', 'warning');
-            return;
-        }
-        
-        const testMessage = `🔧 *MADS Test Message* 🔧\n\nYour Telegram bot is working! You'll receive emergency alerts here when accidents are detected.\n\n🚲 *Mobile Accident Detection System*`;
-        
-        this.showToast('📤 Sending test message...', 'info');
-        
-        let successCount = 0;
-        
-        for (const chatId of this.telegram.chatIds) {
-            const sent = await this.sendTelegramMessageToChat(chatId, testMessage);
-            if (sent) successCount++;
-        }
-        
-        if (successCount > 0) {
-            this.showToast(`✅ Test message sent to ${successCount} chat(s)!`, 'success');
-        } else {
-            this.showToast('❌ Test failed. Check your bot token', 'error');
-        }
-    }
-    
-    async sendTelegramMessage(contactName, message) {
-        let successCount = 0;
-        
-        for (const chatId of this.telegram.chatIds) {
-            const sent = await this.sendTelegramMessageToChat(chatId, message);
-            if (sent) successCount++;
-        }
-        
-        return successCount > 0;
-    }
-    
-    async sendTelegramMessageToChat(chatId, message) {
-        const url = `https://api.telegram.org/bot${this.telegram.botToken}/sendMessage`;
-        
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    chat_id: chatId,
-                    text: message,
-                    parse_mode: 'Markdown'
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (data.ok) {
-                console.log(`MADS: Telegram message sent to chat ${chatId}`);
-                return true;
-            } else {
-                console.error('MADS: Telegram API error', data);
-                return false;
-            }
-        } catch (error) {
-            console.error('MADS: Failed to send Telegram message', error);
-            return false;
-        }
-    }
-    
-    setupPWA() {
-        let deferredPrompt;
-        const installBtn = document.getElementById('install-btn');
-        
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();
-            deferredPrompt = e;
-            if (installBtn) installBtn.style.display = 'flex';
-        });
-        
-        if (installBtn) {
-            installBtn.addEventListener('click', async () => {
-                if (!deferredPrompt) return;
-                deferredPrompt.prompt();
-                const { outcome } = await deferredPrompt.userChoice;
-                if (outcome === 'accepted') {
-                    installBtn.style.display = 'none';
-                }
-                deferredPrompt = null;
-            });
-        }
-        
-        window.addEventListener('appinstalled', () => {
-            if (installBtn) installBtn.style.display = 'none';
-            deferredPrompt = null;
-        });
-    }
-    
     setupEventListeners() {
-        document.getElementById('toggle-system')?.addEventListener('click', () => this.toggleSystem());
-        document.getElementById('test-alert')?.addEventListener('click', () => this.testAlert());
+        // Manual controls
+        document.getElementById('toggle-system')?.addEventListener('click', () => this.manualToggle());
+        document.getElementById('force-stop')?.addEventListener('click', () => this.forceStop());
         
+        // Test buttons
+        document.getElementById('test-impact')?.addEventListener('click', () => this.testImpact());
+        document.getElementById('test-speed-drop')?.addEventListener('click', () => this.testSpeedDrop());
+        document.getElementById('test-whatsapp')?.addEventListener('click', () => this.testWhatsApp());
+        
+        // Contact management
         document.getElementById('add-contact')?.addEventListener('click', () => this.showContactModal());
         document.getElementById('cancel-contact')?.addEventListener('click', () => this.hideContactModal());
         document.getElementById('save-contact')?.addEventListener('click', () => this.saveContact());
         
+        // WhatsApp setup
+        document.getElementById('setup-whatsapp')?.addEventListener('click', () => this.showWhatsAppModal());
+        document.getElementById('cancel-whatsapp')?.addEventListener('click', () => this.hideWhatsAppModal());
+        document.getElementById('save-whatsapp')?.addEventListener('click', () => this.saveWhatsAppConfig());
+        
+        // Countdown controls
         document.getElementById('cancel-alert')?.addEventListener('click', () => this.cancelAlert());
         document.getElementById('send-now')?.addEventListener('click', () => this.sendEmergencyAlert());
         
+        // Settings
         document.getElementById('threshold')?.addEventListener('input', (e) => this.updateThreshold(e.target.value));
+        document.getElementById('speed-threshold')?.addEventListener('input', (e) => this.updateSpeedThreshold(e.target.value));
+        document.getElementById('speed-drop-threshold')?.addEventListener('input', (e) => this.updateSpeedDropThreshold(e.target.value));
         document.getElementById('countdown-time')?.addEventListener('change', (e) => {
             this.countdownTime = parseInt(e.target.value);
             this.saveSettings();
@@ -445,7 +103,15 @@ class MADS {
             this.settings.enableVibration = e.target.checked;
             this.saveSettings();
         });
+        document.getElementById('background-monitoring')?.addEventListener('change', (e) => {
+            this.settings.backgroundMonitoring = e.target.checked;
+            this.saveSettings();
+            if (e.target.checked) {
+                this.startBackgroundMonitoring();
+            }
+        });
         
+        // Battery monitoring
         if ('getBattery' in navigator) {
             navigator.getBattery().then(battery => {
                 this.updateBatteryStatus(battery);
@@ -456,14 +122,17 @@ class MADS {
     
     async requestPermissions() {
         try {
+            // Notification permission
             if ('Notification' in window && Notification.permission !== 'granted') {
                 await Notification.requestPermission();
             }
             
+            // Geolocation for speed and location
             if ('geolocation' in navigator) {
                 this.watchLocation();
             }
             
+            // Motion sensors
             if (typeof DeviceMotionEvent !== 'undefined' && 
                 typeof DeviceMotionEvent.requestPermission === 'function') {
                 try {
@@ -472,7 +141,7 @@ class MADS {
                         this.setupMotionSensors();
                     }
                 } catch (error) {
-                    console.warn('DeviceMotion permission denied:', error);
+                    console.warn('Motion permission denied:', error);
                 }
             } else {
                 this.setupMotionSensors();
@@ -488,10 +157,7 @@ class MADS {
             window.addEventListener('devicemotion', (event) => {
                 this.handleMotion(event);
             });
-            
-            document.getElementById('sensor-status').textContent = 'Sensors: Active';
-        } else {
-            document.getElementById('sensor-status').textContent = 'Sensors: Not Available';
+            document.getElementById('sensor-status').innerHTML = '<i class="fas fa-check-circle" style="color: var(--success);"></i> Sensors: Active';
         }
     }
     
@@ -499,23 +165,145 @@ class MADS {
         if ('geolocation' in navigator) {
             navigator.geolocation.watchPosition(
                 (position) => {
+                    // Update location
                     this.location = {
                         latitude: position.coords.latitude,
                         longitude: position.coords.longitude,
-                        accuracy: position.coords.accuracy
+                        accuracy: position.coords.accuracy,
+                        speed: position.coords.speed || 0
                     };
+                    
+                    // Calculate speed in km/h
+                    const speedKmh = (this.location.speed * 3.6).toFixed(1);
+                    this.updateSpeed(speedKmh);
+                    
                     document.getElementById('gps-status').innerHTML = '<i class="fas fa-check-circle" style="color: var(--success);"></i> GPS: Active';
                 },
                 (error) => {
-                    console.error('MADS: GPS Error', error);
+                    console.error('GPS Error:', error);
                     document.getElementById('gps-status').innerHTML = '<i class="fas fa-exclamation-triangle" style="color: var(--danger);"></i> GPS: Error';
                 },
                 {
                     enableHighAccuracy: true,
-                    maximumAge: 10000,
+                    maximumAge: 1000,
                     timeout: 5000
                 }
             );
+        }
+    }
+    
+    updateSpeed(speed) {
+        // Store in history
+        this.speedHistory.push({
+            speed: parseFloat(speed),
+            timestamp: Date.now()
+        });
+        
+        if (this.speedHistory.length > this.maxHistoryLength) {
+            this.speedHistory.shift();
+        }
+        
+        // Update display
+        document.getElementById('current-speed').textContent = speed;
+        document.getElementById('speed-status').innerHTML = `<i class="fas fa-tachometer-alt"></i> Speed: ${speed} km/h`;
+        
+        // Update threshold bar
+        const speedPercent = Math.min((parseFloat(speed) / this.speedThreshold) * 100, 100);
+        document.getElementById('speed-threshold-fill').style.width = `${speedPercent}%`;
+        
+        // Auto-activation logic
+        this.checkAutoActivation(parseFloat(speed));
+        
+        // Check for speed drop (crash detection)
+        this.checkSpeedDrop(parseFloat(speed));
+        
+        // Update speed history display
+        this.updateSpeedHistory();
+    }
+    
+    checkAutoActivation(currentSpeed) {
+        if (!this.settings.backgroundMonitoring) return;
+        
+        if (currentSpeed >= this.speedThreshold && !this.isActive) {
+            // Speed crossed threshold - activate protection
+            this.activateProtection('Speed > ' + this.speedThreshold + ' km/h');
+        } else if (currentSpeed < this.speedThreshold && this.isActive && !this.isDetecting) {
+            // Speed dropped below threshold - schedule deactivation
+            this.scheduleDeactivation();
+        } else if (currentSpeed >= this.speedThreshold && this.deactivationTimer) {
+            // Speed went back up - cancel deactivation
+            this.cancelDeactivation();
+        }
+    }
+    
+    activateProtection(reason) {
+        this.isActive = true;
+        this.cancelDeactivation();
+        
+        // Update UI
+        document.getElementById('system-status').innerHTML = `
+            <div class="indicator active"></div>
+            <span>🟢 PROTECTION ACTIVE</span>
+        `;
+        document.getElementById('protection-reason').innerHTML = `<small>Active: ${reason}</small>`;
+        document.getElementById('toggle-system').style.display = 'none';
+        document.getElementById('force-stop').style.display = 'block';
+        
+        // Show notification
+        this.showNotification('MADS Protection Active', 'Monitoring for accidents');
+        
+        // If in background, show persistent notification
+        if (document.hidden) {
+            this.showBackgroundNotification('Protection Active', 'Speed: ' + document.getElementById('current-speed').textContent + ' km/h');
+        }
+    }
+    
+    deactivateProtection(reason) {
+        this.isActive = false;
+        
+        // Update UI
+        document.getElementById('system-status').innerHTML = `
+            <div class="indicator inactive"></div>
+            <span>⚫ PROTECTION INACTIVE</span>
+        `;
+        document.getElementById('protection-reason').innerHTML = `<small>${reason || 'Waiting for speed > 20 km/h'}</small>`;
+        document.getElementById('toggle-system').style.display = 'block';
+        document.getElementById('force-stop').style.display = 'none';
+    }
+    
+    scheduleDeactivation() {
+        if (this.deactivationTimer) return;
+        
+        this.deactivationTimer = setTimeout(() => {
+            this.deactivateProtection('Speed below threshold for 10 seconds');
+            this.deactivationTimer = null;
+        }, 10000); // 10 seconds delay
+        
+        document.getElementById('protection-reason').innerHTML = '<small>Deactivating in 10s if speed stays low...</small>';
+    }
+    
+    cancelDeactivation() {
+        if (this.deactivationTimer) {
+            clearTimeout(this.deactivationTimer);
+            this.deactivationTimer = null;
+        }
+    }
+    
+    checkSpeedDrop(currentSpeed) {
+        if (!this.isActive || this.isDetecting) return;
+        
+        // Calculate speed drop from history
+        if (this.speedHistory.length > 2) {
+            const prevSpeed = this.speedHistory[this.speedHistory.length - 2].speed;
+            const speedDrop = prevSpeed - currentSpeed;
+            
+            document.getElementById('speed-drop').textContent = speedDrop.toFixed(1) + ' km/h';
+            
+            // If speed drops suddenly more than threshold
+            if (speedDrop > this.speedDropThreshold) {
+                console.log(`MADS: Speed drop detected - ${speedDrop.toFixed(1)} km/h`);
+                this.detectCrash('speed_drop', speedDrop);
+            }
         }
     }
     
@@ -541,31 +329,40 @@ class MADS {
                                 this.accelerationHistory[this.accelerationHistory.length - 2]);
             document.getElementById('last-jerk').textContent = `${jerk.toFixed(2)} g/s`;
             
-            if (this.isActive && !this.isDetecting && 
-                gForce > this.threshold && jerk > 1.5) {
-                this.detectImpact(gForce);
+            // Check for impact
+            if (this.isActive && !this.isDetecting && gForce > this.threshold && jerk > 1.5) {
+                this.detectCrash('impact', gForce);
             }
         }
         
+        // Update progress bar
         const progress = Math.min((gForce / this.threshold) * 100, 100);
         document.getElementById('impact-progress').style.width = `${progress}%`;
         document.getElementById('impact-force').textContent = `${gForce.toFixed(2)} g`;
     }
     
-    detectImpact(gForce) {
+    detectCrash(type, value) {
         this.isDetecting = true;
-        this.triggerEmergencyAlert(gForce);
+        
+        let reason = '';
+        if (type === 'impact') {
+            reason = `Impact detected: ${value.toFixed(1)}g`;
+        } else {
+            reason = `Sudden speed drop: ${value.toFixed(1)} km/h`;
+        }
+        
+        this.triggerEmergencyAlert(reason);
     }
     
-    async triggerEmergencyAlert(gForce) {
-        console.log(`MADS: Impact detected - ${gForce.toFixed(2)}g`);
+    async triggerEmergencyAlert(reason) {
+        console.log(`MADS: Crash detected - ${reason}`);
         
         document.getElementById('system-status').innerHTML = `
             <div class="indicator alert"></div>
-            <span>🚨 ALERT TRIGGERED!</span>
+            <span>🚨 CRASH DETECTED!</span>
         `;
         
-        this.showCountdownOverlay();
+        this.showCountdownOverlay(reason);
         
         let timeLeft = this.countdownTime;
         document.getElementById('countdown-timer').textContent = timeLeft;
@@ -584,7 +381,8 @@ class MADS {
         }, 1000);
     }
     
-    showCountdownOverlay() {
+    showCountdownOverlay(reason) {
+        document.getElementById('detection-reason').textContent = reason;
         document.getElementById('countdown-overlay').style.display = 'flex';
         document.body.classList.add('vibrate');
     }
@@ -597,7 +395,7 @@ class MADS {
     startAlarm() {
         if (this.settings.enableSound) {
             const alarmSound = document.getElementById('alarm-sound');
-            alarmSound.play().catch(e => console.log('MADS: Audio play failed', e));
+            alarmSound.play().catch(e => console.log('Audio play failed:', e));
         }
         
         if (this.settings.enableVibration && 'vibrate' in navigator) {
@@ -621,14 +419,14 @@ class MADS {
         this.stopAlarm();
         this.hideCountdownOverlay();
         this.updateUI();
-        this.showNotification('MADS Alert Cancelled', 'System is back to monitoring');
+        this.showNotification('Alert Cancelled', 'System is back to monitoring');
     }
     
     async sendEmergencyAlert() {
         clearInterval(this.countdownInterval);
         this.stopAlarm();
         
-        this.showProgress('🚨 MADS: Sending emergency alerts...');
+        this.showProgress('🚨 Sending emergency alerts...');
         
         if (!this.location) {
             await this.getCurrentLocation();
@@ -636,24 +434,20 @@ class MADS {
         
         let successCount = 0;
         
-        // Send via Telegram if configured
-        if (this.telegram.isConfigured) {
-            const message = this.createTelegramMessage();
-            const sent = await this.sendTelegramMessage('Emergency', message);
-            if (sent) successCount = this.telegram.chatIds.length;
-        } else {
-            this.showToast('⚠️ Telegram not configured - please setup first', 'warning');
-            this.showTelegramSetupPrompt();
+        // Send WhatsApp alerts if configured
+        if (this.whatsapp.isConfigured) {
+            const message = this.createWhatsAppMessage();
+            const sent = await this.sendWhatsAppAlert(message);
+            if (sent) successCount = this.contacts.length;
         }
         
         this.hideProgress();
         
         if (successCount > 0) {
-            this.showToast(`✅ MADS: Telegram alert sent to ${successCount} recipient(s)`, 'success');
-        }
-        
-        if (successCount === 0) {
-            this.showToast('⚠️ No recipients configured - add chat IDs first', 'warning');
+            this.showToast(`✅ Emergency alerts sent to ${successCount} contact(s)`, 'success');
+        } else {
+            this.showToast('⚠️ No WhatsApp configured - please setup alerts', 'warning');
+            this.showWhatsAppModal();
         }
         
         this.hideCountdownOverlay();
@@ -661,27 +455,174 @@ class MADS {
         this.updateUI();
     }
     
-    createTelegramMessage() {
+    createWhatsAppMessage() {
         const time = new Date().toLocaleTimeString();
         const date = new Date().toLocaleDateString();
+        const speed = document.getElementById('current-speed').textContent;
         const mapsLink = this.location ? 
             `https://maps.google.com/?q=${this.location.latitude},${this.location.longitude}` :
             'Location unavailable';
         
         return `🚨 *MADS - EMERGENCY ALERT* 🚨
 
-*I've been in a bike accident and need immediate assistance!*
+*I've been in a bike accident!*
 
-📍 *Location:* [Open in Maps](${mapsLink})
-📍 *Coordinates:* \`${this.location?.latitude || 'N/A'}, ${this.location?.longitude || 'N/A'}\`
+📍 *Location:* ${mapsLink}
+📍 *Coordinates:* ${this.location?.latitude || 'N/A'}, ${this.location?.longitude || 'N/A'}
 🕒 *Time:* ${time}
 📅 *Date:* ${date}
-📊 *Accuracy:* ±${Math.round(this.location?.accuracy || 0)}m
+📊 *Speed at impact:* ${speed} km/h
 
 Please check on me immediately or call emergency services.
 
 ---
 _Mobile Accident Detection System_ 🚲`;
+    }
+    
+    async sendWhatsAppAlert(message) {
+        if (!this.whatsapp.isConfigured) return false;
+        
+        const encodedMessage = encodeURIComponent(message);
+        const url = `https://api.callmebot.com/whatsapp.php?phone=${this.whatsapp.phoneNumber}&text=${encodedMessage}&apikey=${this.whatsapp.apiKey}`;
+        
+        try {
+            const response = await fetch(url);
+            const text = await response.text();
+            
+            if (response.status === 200 && text.includes('Message sent')) {
+                console.log('WhatsApp alert sent');
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('WhatsApp send failed:', error);
+            return false;
+        }
+    }
+    
+    checkWhatsAppConfig() {
+        this.whatsapp.isConfigured = !!(this.whatsapp.apiKey && this.whatsapp.phoneNumber);
+        
+        const statusEl = document.getElementById('whatsapp-status');
+        if (this.whatsapp.isConfigured) {
+            statusEl.innerHTML = '<i class="fab fa-whatsapp" style="color: #25D366;"></i> WhatsApp: Configured';
+            statusEl.classList.add('configured');
+        } else {
+            statusEl.innerHTML = '<i class="fab fa-whatsapp"></i> WhatsApp: Not configured';
+        }
+    }
+    
+    showWhatsAppModal() {
+        document.getElementById('whatsapp-modal').style.display = 'flex';
+        document.getElementById('whatsapp-apikey').value = this.whatsapp.apiKey;
+        document.getElementById('whatsapp-phone').value = this.whatsapp.phoneNumber;
+    }
+    
+    hideWhatsAppModal() {
+        document.getElementById('whatsapp-modal').style.display = 'none';
+    }
+    
+    saveWhatsAppConfig() {
+        const apiKey = document.getElementById('whatsapp-apikey').value.trim();
+        const phone = document.getElementById('whatsapp-phone').value.trim();
+        
+        if (!apiKey || !phone) {
+            this.showToast('Please fill all fields', 'error');
+            return;
+        }
+        
+        this.whatsapp.apiKey = apiKey;
+        this.whatsapp.phoneNumber = phone.replace(/\D/g, '');
+        this.whatsapp.isConfigured = true;
+        
+        localStorage.setItem('mads_whatsapp_apikey', apiKey);
+        localStorage.setItem('mads_whatsapp_phone', this.whatsapp.phoneNumber);
+        
+        this.hideWhatsAppModal();
+        this.checkWhatsAppConfig();
+        this.showToast('WhatsApp configured successfully!', 'success');
+    }
+    
+    async testWhatsApp() {
+        if (!this.whatsapp.isConfigured) {
+            this.showToast('Please configure WhatsApp first', 'warning');
+            this.showWhatsAppModal();
+            return;
+        }
+        
+        const testMessage = `🔧 *MADS Test Message* 🔧\n\nYour WhatsApp alert system is working correctly!`;
+        
+        this.showToast('Sending test message...', 'info');
+        const sent = await this.sendWhatsAppAlert(testMessage);
+        
+        if (sent) {
+            this.showToast('✅ Test message sent! Check your WhatsApp', 'success');
+        } else {
+            this.showToast('❌ Test failed. Check your API key', 'error');
+        }
+    }
+    
+    testImpact() {
+        if (!this.isActive) {
+            this.activateProtection('Manual test');
+        }
+        this.detectCrash('impact', this.threshold + 1);
+    }
+    
+    testSpeedDrop() {
+        if (!this.isActive) {
+            this.activateProtection('Manual test');
+        }
+        this.detectCrash('speed_drop', this.speedDropThreshold + 5);
+    }
+    
+    manualToggle() {
+        if (this.isActive) {
+            this.forceStop();
+        } else {
+            this.activateProtection('Manual activation');
+        }
+    }
+    
+    forceStop() {
+        this.isActive = false;
+        this.cancelDeactivation();
+        this.deactivateProtection('Manually stopped');
+        this.showToast('Protection stopped', 'info');
+    }
+    
+    startBackgroundMonitoring() {
+        if (!this.settings.backgroundMonitoring) return;
+        
+        // Monitor page visibility
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.isBackgroundMode = true;
+                if (this.isActive) {
+                    this.showBackgroundNotification('Protection Active', 'Monitoring in background');
+                }
+            } else {
+                this.isBackgroundMode = false;
+            }
+        });
+    }
+    
+    showBackgroundNotification(title, body) {
+        if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('MADS: ' + title, {
+                body: body,
+                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚲</text></svg>',
+                tag: 'mads-background'
+            });
+        }
+    }
+    
+    updateSpeedHistory() {
+        const historyEl = document.getElementById('speed-history');
+        if (this.speedHistory.length > 1) {
+            const recent = this.speedHistory.slice(-5).map(s => s.speed.toFixed(1)).join(' → ');
+            historyEl.innerHTML = `<small>Recent speeds: ${recent} km/h</small>`;
+        }
     }
     
     async getCurrentLocation() {
@@ -692,28 +633,18 @@ _Mobile Accident Detection System_ 🚲`;
                         this.location = {
                             latitude: position.coords.latitude,
                             longitude: position.coords.longitude,
-                            accuracy: position.coords.accuracy
+                            accuracy: position.coords.accuracy,
+                            speed: position.coords.speed || 0
                         };
                         resolve(this.location);
                     },
-                    (error) => {
-                        console.error('MADS: Location error', error);
-                        resolve(null);
-                    },
-                    {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 0
-                    }
+                    (error) => resolve(null),
+                    { enableHighAccuracy: true, timeout: 10000 }
                 );
             } else {
                 resolve(null);
             }
         });
-    }
-    
-    delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
     }
     
     updateLocationInfo() {
@@ -740,61 +671,31 @@ _Mobile Accident Detection System_ 🚲`;
         const progress = document.getElementById('sms-progress');
         if (progress) {
             progress.style.display = 'flex';
-            progress.innerHTML = `
-                <i class="fas fa-spinner fa-spin"></i>
-                <span>${message}</span>
-            `;
+            progress.innerHTML = `<i class="fas fa-spinner fa-spin"></i> <span>${message}</span>`;
         }
     }
     
     hideProgress() {
         const progress = document.getElementById('sms-progress');
-        if (progress) {
-            progress.style.display = 'none';
-        }
-    }
-    
-    toggleSystem() {
-        this.isActive = !this.isActive;
-        
-        const toggleBtn = document.getElementById('toggle-system');
-        const statusIndicator = document.getElementById('system-status');
-        
-        if (this.isActive) {
-            toggleBtn.innerHTML = '<i class="fas fa-power-off"></i> Stop Protection';
-            toggleBtn.classList.remove('btn-primary');
-            toggleBtn.classList.add('btn-secondary');
-            statusIndicator.innerHTML = `
-                <div class="indicator active"></div>
-                <span>🟢 MADS ACTIVE</span>
-            `;
-            this.showNotification('MADS Activated', 'Monitoring for accidents');
-        } else {
-            toggleBtn.innerHTML = '<i class="fas fa-power-off"></i> Start Protection';
-            toggleBtn.classList.remove('btn-secondary');
-            toggleBtn.classList.add('btn-primary');
-            statusIndicator.innerHTML = `
-                <div class="indicator inactive"></div>
-                <span>⚫ MADS INACTIVE</span>
-            `;
-            this.showNotification('MADS Deactivated', 'System is off');
-        }
-    }
-    
-    testAlert() {
-        if (!this.isActive) {
-            this.showNotification('MADS', 'Please activate system first');
-            return;
-        }
-        
-        this.detectImpact(this.threshold + 1);
-        this.showNotification('MADS Test', 'Test alert initiated');
+        if (progress) progress.style.display = 'none';
     }
     
     updateThreshold(value) {
         this.threshold = parseFloat(value);
         document.getElementById('threshold-value').textContent = `${value}g`;
         document.getElementById('threshold-display').textContent = `${value}g`;
+        this.saveSettings();
+    }
+    
+    updateSpeedThreshold(value) {
+        this.speedThreshold = parseInt(value);
+        document.getElementById('speed-threshold-display').textContent = `${value} km/h`;
+        this.saveSettings();
+    }
+    
+    updateSpeedDropThreshold(value) {
+        this.speedDropThreshold = parseInt(value);
+        document.getElementById('speed-drop-display').textContent = `${value} km/h`;
         this.saveSettings();
     }
     
@@ -813,7 +714,7 @@ _Mobile Accident Detection System_ 🚲`;
         const phone = document.getElementById('contact-phone').value.trim();
         
         if (!name || !phone) {
-            this.showNotification('MADS', 'Please fill all fields');
+            this.showToast('Please fill all fields', 'error');
             return;
         }
         
@@ -830,16 +731,14 @@ _Mobile Accident Detection System_ 🚲`;
         this.renderContacts();
         this.hideContactModal();
         
-        this.showNotification('MADS', `${name} added to emergency contacts`);
+        this.showToast(`${name} added to contacts`, 'success');
     }
     
     deleteContact(id) {
-        if (confirm('Remove this emergency contact?')) {
-            this.contacts = this.contacts.filter(contact => contact.id !== id);
-            this.saveContacts();
-            this.renderContacts();
-            this.showNotification('MADS', 'Contact removed');
-        }
+        this.contacts = this.contacts.filter(contact => contact.id !== id);
+        this.saveContacts();
+        this.renderContacts();
+        this.showToast('Contact removed', 'info');
     }
     
     renderContacts() {
@@ -850,7 +749,7 @@ _Mobile Accident Detection System_ 🚲`;
                 <div class="empty-contacts">
                     <i class="fas fa-user-plus"></i>
                     <p>No emergency contacts added</p>
-                    <small>Add contacts who will receive MADS alerts</small>
+                    <small>Add contacts who will receive WhatsApp alerts</small>
                 </div>
             `;
             return;
@@ -859,14 +758,8 @@ _Mobile Accident Detection System_ 🚲`;
         contactsList.innerHTML = this.contacts.map(contact => `
             <div class="contact-item">
                 <div class="contact-info">
-                    <h4>
-                        ${contact.name}
-                        <span class="sms-badge telegram">
-                            <i class="fab fa-telegram"></i> Telegram
-                        </span>
-                    </h4>
+                    <h4>${contact.name}</h4>
                     <p>${contact.phone}</p>
-                    <small>MADS Emergency Contact</small>
                 </div>
                 <button class="delete-contact" onclick="mads.deleteContact(${contact.id})">
                     <i class="fas fa-trash"></i>
@@ -877,21 +770,13 @@ _Mobile Accident Detection System_ 🚲`;
     
     updateUI() {
         if ('getBattery' in navigator) {
-            navigator.getBattery().then(battery => {
-                this.updateBatteryStatus(battery);
-            });
+            navigator.getBattery().then(battery => this.updateBatteryStatus(battery));
         }
     }
     
     updateBatteryStatus(battery) {
-        const batteryElem = document.getElementById('battery-status');
         const level = Math.round(battery.level * 100);
-        
-        batteryElem.innerHTML = `<i class="fas fa-battery-${this.getBatteryIcon(level)}"></i> ${level}%`;
-        
-        if (battery.charging) {
-            batteryElem.innerHTML += ' ⚡';
-        }
+        document.getElementById('battery-status').innerHTML = `<i class="fas fa-battery-${this.getBatteryIcon(level)}"></i> ${level}%`;
     }
     
     getBatteryIcon(level) {
@@ -902,19 +787,8 @@ _Mobile Accident Detection System_ 🚲`;
         return 'empty';
     }
     
-    showNotification(title, message) {
-        if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`MADS: ${title}`, {
-                body: message,
-                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚲</text></svg>'
-            });
-        }
-        this.showToast(message);
-    }
-    
     showToast(message, type = 'info') {
         let toast = document.getElementById('mads-toast');
-        
         if (!toast) {
             toast = document.createElement('div');
             toast.id = 'mads-toast';
@@ -923,13 +797,7 @@ _Mobile Accident Detection System_ 🚲`;
         }
         
         toast.className = `mads-toast ${type}`;
-        toast.innerHTML = `
-            <div class="toast-content">
-                <i class="fas ${this.getToastIcon(type)}"></i>
-                <span>${message}</span>
-            </div>
-        `;
-        
+        toast.innerHTML = `<div class="toast-content"><i class="fas ${this.getToastIcon(type)}"></i><span>${message}</span></div>`;
         toast.style.display = 'block';
         
         setTimeout(() => {
@@ -950,11 +818,43 @@ _Mobile Accident Detection System_ 🚲`;
         }
     }
     
+    showNotification(title, message) {
+        if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`MADS: ${title}`, { body: message });
+        }
+    }
+    
+    setupPWA() {
+        let deferredPrompt;
+        const installBtn = document.getElementById('install-btn');
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBtn.style.display = 'flex';
+        });
+        
+        installBtn?.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') installBtn.style.display = 'none';
+            deferredPrompt = null;
+        });
+        
+        window.addEventListener('appinstalled', () => {
+            installBtn.style.display = 'none';
+            deferredPrompt = null;
+        });
+    }
+    
     saveData() {
         const data = {
             contacts: this.contacts,
             settings: this.settings,
             threshold: this.threshold,
+            speedThreshold: this.speedThreshold,
+            speedDropThreshold: this.speedDropThreshold,
             countdownTime: this.countdownTime
         };
         localStorage.setItem('mads_data', JSON.stringify(data));
@@ -968,36 +868,42 @@ _Mobile Accident Detection System_ 🚲`;
                 this.contacts = data.contacts || [];
                 this.settings = { ...this.settings, ...(data.settings || {}) };
                 this.threshold = data.threshold || 3.5;
+                this.speedThreshold = data.speedThreshold || 20;
+                this.speedDropThreshold = data.speedDropThreshold || 25;
                 this.countdownTime = data.countdownTime || 10;
                 
+                // Update UI
                 document.getElementById('threshold').value = this.threshold;
-                document.getElementById('threshold-display').textContent = `${this.threshold}g`;
-                document.getElementById('threshold-value').textContent = `${this.threshold}g`;
+                document.getElementById('threshold-display').textContent = this.threshold + 'g';
+                document.getElementById('threshold-value').textContent = this.threshold + 'g';
+                
+                document.getElementById('speed-threshold').value = this.speedThreshold;
+                document.getElementById('speed-threshold-display').textContent = this.speedThreshold + ' km/h';
+                
+                document.getElementById('speed-drop-threshold').value = this.speedDropThreshold;
+                document.getElementById('speed-drop-display').textContent = this.speedDropThreshold + ' km/h';
+                
                 document.getElementById('countdown-time').value = this.countdownTime;
                 document.getElementById('enable-sound').checked = this.settings.enableSound;
                 document.getElementById('enable-vibration').checked = this.settings.enableVibration;
+                document.getElementById('background-monitoring').checked = this.settings.backgroundMonitoring;
                 
                 this.renderContacts();
             } catch (e) {
-                console.error('MADS: Failed to load saved data', e);
+                console.error('Failed to load data', e);
             }
         }
     }
     
-    saveSettings() {
-        this.saveData();
-    }
-    
-    saveContacts() {
-        this.saveData();
-    }
+    saveSettings() { this.saveData(); }
+    saveContacts() { this.saveData(); }
 }
 
 // Initialize MADS
 const mads = new MADS();
 window.mads = mads;
 
-// Add styles for MADS
+// Add styles
 document.addEventListener('DOMContentLoaded', () => {
     const style = document.createElement('style');
     style.textContent = `
@@ -1010,317 +916,26 @@ document.addEventListener('DOMContentLoaded', () => {
             color: white;
             padding: 12px 24px;
             border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             z-index: 10001;
             animation: slideUp 0.3s ease;
             display: none;
         }
-        
-        .mads-toast.success {
-            background: var(--success);
-        }
-        
-        .mads-toast.warning {
-            background: var(--warning);
-        }
-        
-        .mads-toast.error {
-            background: var(--danger);
-        }
-        
-        .toast-content {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
+        .mads-toast.success { background: var(--success); }
+        .mads-toast.warning { background: var(--warning); }
+        .mads-toast.error { background: var(--danger); }
+        .toast-content { display: flex; align-items: center; gap: 10px; }
         @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translate(-50%, 20px);
-            }
-            to {
-                opacity: 1;
-                transform: translate(-50%, 0);
-            }
+            from { opacity: 0; transform: translate(-50%, 20px); }
+            to { opacity: 1; transform: translate(-50%, 0); }
         }
-        
         @keyframes slideDown {
-            from {
-                opacity: 1;
-                transform: translate(-50%, 0);
-            }
-            to {
-                opacity: 0;
-                transform: translate(-50%, 20px);
-            }
-        }
-        
-        .telegram-setup-modal {
-            max-width: 600px;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        
-        .telegram-setup-modal .modal-header {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        
-        .telegram-setup-modal .modal-header h2 {
-            margin: 10px 0 5px;
-        }
-        
-        .telegram-setup-modal .setup-steps {
-            margin: 20px 0;
-        }
-        
-        .telegram-setup-modal .step {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-            padding: 15px;
-            background: rgba(0, 136, 204, 0.1);
-            border-radius: 12px;
-            border-left: 4px solid #0088cc;
-        }
-        
-        .telegram-setup-modal .step-number {
-            width: 30px;
-            height: 30px;
-            background: #0088cc;
-            color: white;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            flex-shrink: 0;
-        }
-        
-        .telegram-setup-modal .step-content {
-            flex: 1;
-        }
-        
-        .telegram-setup-modal .step-content h4 {
-            margin-bottom: 8px;
-            color: #0088cc;
-        }
-        
-        .telegram-setup-modal .info-box {
-            background: var(--card-bg);
-            padding: 12px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 10px 0;
-            border: 1px solid var(--border);
-        }
-        
-        .telegram-setup-modal .info-box code {
-            flex: 1;
-            font-family: monospace;
-            font-size: 14px;
-            word-break: break-all;
-        }
-        
-        .telegram-setup-modal .copy-btn {
-            background: var(--secondary);
-            color: white;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            white-space: nowrap;
-        }
-        
-        .telegram-setup-modal .copy-btn:hover {
-            background: var(--secondary-dark);
-        }
-        
-        .telegram-setup-modal .input-group {
-            margin: 15px 0;
-        }
-        
-        .telegram-setup-modal .input-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 500;
-        }
-        
-        .telegram-setup-modal .input-group input {
-            width: 100%;
-            padding: 10px;
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text);
-            font-size: 14px;
-        }
-        
-        .telegram-setup-modal .input-group small {
-            display: block;
-            color: var(--text-secondary);
-            font-size: 11px;
-            margin-top: 4px;
-        }
-        
-        .telegram-setup-modal .instruction-list {
-            margin: 10px 0;
-            padding-left: 20px;
-            color: var(--text-secondary);
-        }
-        
-        .telegram-setup-modal .instruction-list li {
-            margin-bottom: 5px;
-        }
-        
-        .telegram-setup-modal .token-example {
-            background: var(--background);
-            font-family: monospace;
-            word-break: break-all;
-        }
-        
-        .telegram-setup-modal .success-message {
-            background: rgba(22, 163, 74, 0.2);
-            color: var(--success);
-            padding: 10px;
-            border-radius: 8px;
-            margin: 10px 0;
-        }
-        
-        .telegram-setup-modal .warning-message {
-            background: rgba(234, 88, 12, 0.2);
-            color: var(--warning);
-            padding: 10px;
-            border-radius: 8px;
-            margin: 10px 0;
-        }
-        
-        .telegram-setup-modal .error-message {
-            background: rgba(239, 68, 68, 0.2);
-            color: var(--danger);
-            padding: 10px;
-            border-radius: 8px;
-            margin: 10px 0;
-        }
-        
-        .telegram-setup-modal .saved-chats {
-            margin-top: 15px;
-            padding: 10px;
-            background: var(--card-bg);
-            border-radius: 8px;
-        }
-        
-        .telegram-setup-modal .chat-id-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 8px;
-            background: var(--background);
-            border-radius: 4px;
-            margin-bottom: 5px;
-        }
-        
-        .telegram-setup-modal .chat-id-item code {
-            font-family: monospace;
-            font-size: 12px;
-        }
-        
-        .telegram-setup-modal .delete-chat {
-            background: none;
-            border: none;
-            color: var(--danger);
-            cursor: pointer;
-            padding: 4px 8px;
-            border-radius: 4px;
-        }
-        
-        .telegram-setup-modal .delete-chat:hover {
-            background: rgba(239, 68, 68, 0.1);
-        }
-        
-        .telegram-setup-modal .test-section {
-            margin: 20px 0;
-            text-align: center;
-        }
-        
-        .telegram-setup-modal .modal-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 20px;
-        }
-        
-        .telegram-setup-modal .modal-actions .btn {
-            flex: 1;
-        }
-        
-        .telegram-setup-modal .note {
-            margin-top: 15px;
-            padding: 10px;
-            background: rgba(0, 136, 204, 0.1);
-            border-radius: 8px;
-            text-align: center;
-        }
-        
-        .sms-badge.telegram {
-            background: #0088cc;
-            color: white;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            margin-left: 8px;
-        }
-        
-        .sms-badge.telegram i {
-            margin-right: 4px;
-        }
-        
-        #telegram-setup-btn {
-            margin: 10px 0;
-            width: 100%;
-            background: #0088cc;
-            color: white;
-            font-weight: bold;
-            padding: 15px;
-        }
-        
-        #telegram-setup-btn:hover {
-            background: #006699;
-        }
-        
-        #telegram-setup-btn i {
-            font-size: 1.2rem;
-        }
-        
-        .small {
-            font-size: 12px;
-            color: var(--text-secondary);
+            from { opacity: 1; transform: translate(-50%, 0); }
+            to { opacity: 0; transform: translate(-50%, 20px); }
         }
     `;
     document.head.appendChild(style);
     
-    // Add Telegram status to status bar if not exists
-    if (!document.getElementById('telegram-status')) {
-        const statusBar = document.querySelector('.status-bar');
-        if (statusBar) {
-            const telegramStatus = document.createElement('div');
-            telegramStatus.className = 'status-item';
-            telegramStatus.id = 'telegram-status';
-            telegramStatus.innerHTML = '<i class="fab fa-telegram"></i> Telegram: Checking';
-            statusBar.appendChild(telegramStatus);
-        }
-    }
-    
-    // Service Worker
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js').catch(error => {
-            console.log('MADS: Service Worker failed', error);
-        });
+        navigator.serviceWorker.register('sw.js').catch(console.log);
     }
 });
