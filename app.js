@@ -11,18 +11,8 @@ class BikeAccidentDetector {
         this.contacts = [];
         this.settings = {
             enableSound: true,
-            enableVibration: true,
-            speedUnit: 'kmh' // 'kmh' or 'mph'
+            enableVibration: true
         };
-        
-        // Speed tracking properties
-        this.speedHistory = [];
-        this.maxSpeedHistory = 30; // Keep last 30 readings
-        this.currentSpeed = 0;
-        this.maxSpeed = 0;
-        this.lastPosition = null;
-        this.lastSpeedTimestamp = null;
-        this.speedUpdateInterval = null;
         
         this.init();
     }
@@ -39,9 +29,6 @@ class BikeAccidentDetector {
         
         // Request permissions and start sensors
         await this.requestPermissions();
-        
-        // Start speed tracking
-        this.startSpeedTracking();
         
         // Update status display
         this.updateStatus();
@@ -97,11 +84,6 @@ class BikeAccidentDetector {
         document.getElementById('countdown-time').addEventListener('change', (e) => this.countdownTime = parseInt(e.target.value));
         document.getElementById('enable-sound').addEventListener('change', (e) => this.settings.enableSound = e.target.checked);
         document.getElementById('enable-vibration').addEventListener('change', (e) => this.settings.enableVibration = e.target.checked);
-        document.getElementById('speed-unit').addEventListener('change', (e) => {
-            this.settings.speedUnit = e.target.value;
-            this.updateSpeedDisplay();
-            this.saveSettings();
-        });
         
         // Install button
         if ('getBattery' in navigator) {
@@ -156,192 +138,27 @@ class BikeAccidentDetector {
         }
     }
     
-    startSpeedTracking() {
-        // Update speed display every second
-        this.speedUpdateInterval = setInterval(() => {
-            this.updateSpeedDisplay();
-        }, 1000);
-    }
-    
     watchLocation() {
         if ('geolocation' in navigator) {
             navigator.geolocation.watchPosition(
                 (position) => {
-                    this.handleLocationUpdate(position);
+                    this.location = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        accuracy: position.coords.accuracy
+                    };
+                    document.getElementById('gps-status').textContent = 'GPS: Active';
                 },
                 (error) => {
                     console.error('GPS Error:', error);
                     document.getElementById('gps-status').textContent = 'GPS: Error';
-                    document.getElementById('speed-value').innerHTML = '0 <span class="unit">km/h</span>';
                 },
                 {
                     enableHighAccuracy: true,
-                    maximumAge: 0,
+                    maximumAge: 10000,
                     timeout: 5000
                 }
             );
-        }
-    }
-    
-    handleLocationUpdate(position) {
-        // Update location
-        this.location = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-            speed: position.coords.speed, // Speed in m/s
-            timestamp: position.timestamp
-        };
-        
-        document.getElementById('gps-status').textContent = 'GPS: Active';
-        
-        // Calculate speed from GPS if available
-        if (position.coords.speed !== null && position.coords.speed !== undefined) {
-            // Convert m/s to km/h or mph
-            let speed = position.coords.speed * 3.6; // km/h
-            
-            // Update current speed
-            this.currentSpeed = speed;
-            
-            // Track max speed
-            if (speed > this.maxSpeed) {
-                this.maxSpeed = speed;
-            }
-            
-            // Add to history
-            this.speedHistory.push({
-                speed: speed,
-                timestamp: position.timestamp
-            });
-            
-            // Keep history limited
-            if (this.speedHistory.length > this.maxSpeedHistory) {
-                this.speedHistory.shift();
-            }
-            
-            // Update display
-            this.updateSpeedDisplay();
-        } else {
-            // Fallback to manual speed calculation if GPS speed not available
-            this.calculateSpeedFromPosition(position);
-        }
-    }
-    
-    calculateSpeedFromPosition(position) {
-        if (this.lastPosition && this.lastSpeedTimestamp) {
-            const timeDiff = (position.timestamp - this.lastSpeedTimestamp) / 1000; // in seconds
-            
-            if (timeDiff > 0) {
-                // Calculate distance using Haversine formula
-                const distance = this.calculateDistance(
-                    this.lastPosition.coords.latitude,
-                    this.lastPosition.coords.longitude,
-                    position.coords.latitude,
-                    position.coords.longitude
-                );
-                
-                // Calculate speed in km/h
-                const speed = (distance / timeDiff) * 3.6;
-                
-                // Filter out unrealistic speeds (e.g., GPS noise when stationary)
-                if (speed < 200) { // Max reasonable bike speed
-                    this.currentSpeed = speed;
-                    
-                    if (speed > this.maxSpeed) {
-                        this.maxSpeed = speed;
-                    }
-                    
-                    this.speedHistory.push({
-                        speed: speed,
-                        timestamp: position.timestamp
-                    });
-                    
-                    if (this.speedHistory.length > this.maxSpeedHistory) {
-                        this.speedHistory.shift();
-                    }
-                    
-                    this.updateSpeedDisplay();
-                }
-            }
-        }
-        
-        this.lastPosition = position;
-        this.lastSpeedTimestamp = position.timestamp;
-    }
-    
-    calculateDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371e3; // Earth's radius in meters
-        const φ1 = lat1 * Math.PI / 180;
-        const φ2 = lat2 * Math.PI / 180;
-        const Δφ = (lat2 - lat1) * Math.PI / 180;
-        const Δλ = (lon2 - lon1) * Math.PI / 180;
-        
-        const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-                Math.cos(φ1) * Math.cos(φ2) *
-                Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        
-        return R * c; // Distance in meters
-    }
-    
-    updateSpeedDisplay() {
-        const speedElement = document.getElementById('speed-value');
-        const maxSpeedElement = document.getElementById('max-speed');
-        
-        if (speedElement) {
-            let displaySpeed = this.currentSpeed;
-            let unit = 'km/h';
-            
-            // Convert to mph if selected
-            if (this.settings.speedUnit === 'mph') {
-                displaySpeed = this.currentSpeed * 0.621371;
-                unit = 'mph';
-            }
-            
-            speedElement.innerHTML = `${Math.round(displaySpeed)} <span class="unit">${unit}</span>`;
-            
-            // Change color based on speed
-            if (this.currentSpeed > 80) {
-                speedElement.style.color = 'var(--primary)';
-            } else if (this.currentSpeed > 50) {
-                speedElement.style.color = 'var(--warning)';
-            } else {
-                speedElement.style.color = 'var(--safe)';
-            }
-        }
-        
-        if (maxSpeedElement) {
-            let displayMaxSpeed = this.maxSpeed;
-            let unit = 'km/h';
-            
-            if (this.settings.speedUnit === 'mph') {
-                displayMaxSpeed = this.maxSpeed * 0.621371;
-                unit = 'mph';
-            }
-            
-            maxSpeedElement.innerHTML = `${Math.round(displayMaxSpeed)} <span class="unit">${unit}</span>`;
-        }
-        
-        // Update speed trend
-        this.updateSpeedTrend();
-    }
-    
-    updateSpeedTrend() {
-        const trendElement = document.getElementById('speed-trend');
-        if (!trendElement || this.speedHistory.length < 2) return;
-        
-        const lastTwo = this.speedHistory.slice(-2);
-        const speedDiff = lastTwo[1].speed - lastTwo[0].speed;
-        
-        if (Math.abs(speedDiff) < 1) {
-            trendElement.innerHTML = '<i class="fas fa-minus"></i> Stable';
-            trendElement.style.color = 'var(--text-secondary)';
-        } else if (speedDiff > 0) {
-            trendElement.innerHTML = '<i class="fas fa-arrow-up"></i> Accelerating';
-            trendElement.style.color = 'var(--warning)';
-        } else {
-            trendElement.innerHTML = '<i class="fas fa-arrow-down"></i> Decelerating';
-            trendElement.style.color = 'var(--safe)';
         }
     }
     
@@ -372,16 +189,8 @@ class BikeAccidentDetector {
             document.getElementById('last-jerk').textContent = `${jerk.toFixed(2)} g/s`;
             
             // Check for sudden impact (high jerk + high g-force)
-            // Adjust threshold based on speed - higher speed = more sensitive
-            let speedAdjustedThreshold = this.threshold;
-            if (this.currentSpeed > 60) {
-                speedAdjustedThreshold = this.threshold * 0.8; // More sensitive at high speed
-            } else if (this.currentSpeed > 30) {
-                speedAdjustedThreshold = this.threshold * 0.9;
-            }
-            
             if (this.isActive && !this.isDetecting && 
-                gForce > speedAdjustedThreshold && jerk > 1.5) {
+                gForce > this.threshold && jerk > 1.5) {
                 this.detectImpact(gForce);
             }
         }
@@ -407,15 +216,12 @@ class BikeAccidentDetector {
     detectImpact(gForce) {
         this.isDetecting = true;
         
-        // Log speed at impact
-        console.log(`Impact detected at speed: ${this.currentSpeed.toFixed(1)} km/h`);
-        
         // Trigger emergency alert
         this.triggerEmergencyAlert(gForce);
     }
     
     async triggerEmergencyAlert(gForce) {
-        console.log(`Impact detected: ${gForce.toFixed(2)}g at ${this.currentSpeed.toFixed(1)} km/h`);
+        console.log(`Impact detected: ${gForce.toFixed(2)}g`);
         
         // Update UI for emergency
         document.getElementById('system-status').innerHTML = `
@@ -430,8 +236,8 @@ class BikeAccidentDetector {
         let timeLeft = this.countdownTime;
         document.getElementById('countdown-timer').textContent = timeLeft;
         
-        // Update location and speed info in overlay
-        this.updateEmergencyInfo();
+        // Update location in overlay
+        this.updateLocationInfo();
         
         // Start alarm and vibration
         this.startAlarm();
@@ -448,49 +254,9 @@ class BikeAccidentDetector {
         }, 1000);
     }
     
-    updateEmergencyInfo() {
-        const locationInfo = document.getElementById('location-info');
-        const speedInfo = document.getElementById('speed-info');
-        
-        if (this.location) {
-            locationInfo.innerHTML = `
-                <i class="fas fa-map-marker-alt"></i>
-                ${this.location.latitude.toFixed(6)}, ${this.location.longitude.toFixed(6)}
-                <br><small>Accuracy: ${Math.round(this.location.accuracy)} meters</small>
-            `;
-        } else {
-            locationInfo.innerHTML = '<i class="fas fa-map-marker-alt"></i> Getting location...';
-            this.getCurrentLocation().then(() => {
-                if (this.location) {
-                    locationInfo.innerHTML = `
-                        <i class="fas fa-map-marker-alt"></i>
-                        ${this.location.latitude.toFixed(6)}, ${this.location.longitude.toFixed(6)}
-                        <br><small>Accuracy: ${Math.round(this.location.accuracy)} meters</small>
-                    `;
-                }
-            });
-        }
-        
-        if (speedInfo) {
-            let displaySpeed = this.currentSpeed;
-            let unit = 'km/h';
-            
-            if (this.settings.speedUnit === 'mph') {
-                displaySpeed = this.currentSpeed * 0.621371;
-                unit = 'mph';
-            }
-            
-            speedInfo.innerHTML = `
-                <i class="fas fa-tachometer-alt"></i>
-                Speed at impact: ${Math.round(displaySpeed)} ${unit}
-            `;
-        }
-    }
-    
     showCountdownOverlay() {
         document.getElementById('countdown-overlay').style.display = 'flex';
         document.body.classList.add('vibrate');
-        this.updateEmergencyInfo();
     }
     
     hideCountdownOverlay() {
@@ -574,15 +340,6 @@ class BikeAccidentDetector {
     createEmergencyMessage(contactName) {
         const time = new Date().toLocaleTimeString();
         const date = new Date().toLocaleDateString();
-        
-        let displaySpeed = this.currentSpeed;
-        let speedUnit = 'km/h';
-        
-        if (this.settings.speedUnit === 'mph') {
-            displaySpeed = this.currentSpeed * 0.621371;
-            speedUnit = 'mph';
-        }
-        
         const locationLink = this.location ? 
             `https://maps.google.com/?q=${this.location.latitude},${this.location.longitude}` :
             'Location unavailable';
@@ -595,8 +352,6 @@ Bike Accident Detected!
 📍 Location: ${locationLink}
 🕒 Time: ${time}
 📅 Date: ${date}
-⚡ Impact Speed: ${Math.round(displaySpeed)} ${speedUnit}
-📊 Max Speed Recorded: ${Math.round(this.maxSpeed)} km/h
 
 This is an automated alert from BikeGuard.
 If you receive this message, please check on the user immediately.
@@ -613,7 +368,11 @@ Accuracy: ${this.location?.accuracy ? Math.round(this.location.accuracy) + ' met
             if ('geolocation' in navigator) {
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
-                        this.handleLocationUpdate(position);
+                        this.location = {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude,
+                            accuracy: position.coords.accuracy
+                        };
                         resolve(this.location);
                     },
                     () => {
@@ -631,6 +390,26 @@ Accuracy: ${this.location?.accuracy ? Math.round(this.location.accuracy) + ' met
         });
     }
     
+    updateLocationInfo() {
+        const locationInfo = document.getElementById('location-info');
+        if (this.location) {
+            locationInfo.innerHTML = `
+                Location: ${this.location.latitude.toFixed(6)}, ${this.location.longitude.toFixed(6)}
+                <br><small>Accuracy: ${Math.round(this.location.accuracy)} meters</small>
+            `;
+        } else {
+            locationInfo.textContent = 'Getting location...';
+            this.getCurrentLocation().then(() => {
+                if (this.location) {
+                    locationInfo.innerHTML = `
+                        Location: ${this.location.latitude.toFixed(6)}, ${this.location.longitude.toFixed(6)}
+                        <br><small>Accuracy: ${Math.round(this.location.accuracy)} meters</small>
+                    `;
+                }
+            });
+        }
+    }
+    
     toggleSystem() {
         this.isActive = !this.isActive;
         
@@ -646,9 +425,6 @@ Accuracy: ${this.location?.accuracy ? Math.round(this.location.accuracy) + ' met
                 <span>ACTIVE</span>
             `;
             this.showNotification('Protection Activated', 'BikeGuard is now monitoring for accidents');
-            
-            // Reset max speed when activating
-            this.maxSpeed = 0;
         } else {
             toggleBtn.innerHTML = '<i class="fas fa-power-off"></i> Start Protection';
             toggleBtn.classList.remove('btn-secondary');
@@ -819,7 +595,7 @@ Accuracy: ${this.location?.accuracy ? Math.round(this.location.accuracy) + ' met
             try {
                 const data = JSON.parse(saved);
                 this.contacts = data.contacts || [];
-                this.settings = {...this.settings, ...data.settings};
+                this.settings = data.settings || this.settings;
                 this.threshold = data.threshold || 3.5;
                 this.countdownTime = data.countdownTime || 10;
                 
@@ -830,7 +606,6 @@ Accuracy: ${this.location?.accuracy ? Math.round(this.location.accuracy) + ' met
                 document.getElementById('countdown-time').value = this.countdownTime;
                 document.getElementById('enable-sound').checked = this.settings.enableSound;
                 document.getElementById('enable-vibration').checked = this.settings.enableVibration;
-                document.getElementById('speed-unit').value = this.settings.speedUnit;
                 
                 this.renderContacts();
             } catch (e) {
@@ -845,13 +620,6 @@ Accuracy: ${this.location?.accuracy ? Math.round(this.location.accuracy) + ' met
     
     saveContacts() {
         this.saveData();
-    }
-    
-    // Clean up on page unload
-    destroy() {
-        if (this.speedUpdateInterval) {
-            clearInterval(this.speedUpdateInterval);
-        }
     }
 }
 
@@ -880,12 +648,5 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log('Service Worker registration failed:', error);
             });
         });
-    }
-});
-
-// Clean up on page unload
-window.addEventListener('beforeunload', () => {
-    if (window.bikeGuard) {
-        window.bikeGuard.destroy();
     }
 });
