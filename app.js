@@ -1,117 +1,109 @@
-/**
- * MADS - Mobile Accident Detection System
- * Features:
- * - Speed-based auto-activation (>20 km/h)
- * - Speed drop detection for crashes
- * - Background monitoring with notifications
- * - WhatsApp alerts via CallMeBot
- */
-
-class MADS {
+class BikeAccidentDetector {
     constructor() {
-        // System state
         this.isActive = false;
         this.isDetecting = false;
-        this.isBackgroundMode = false;
-        
-        // Detection parameters
-        this.threshold = 3.5; // g-force threshold
-        this.speedThreshold = 20; // km/h for auto-activation
-        this.speedDropThreshold = 25; // km/h drop to detect crash
-        this.countdownTime = 10; // seconds
-        
-        // Data history
         this.accelerationHistory = [];
-        this.speedHistory = [];
-        this.maxHistoryLength = 20;
-        this.lastSpeed = 0;
-        this.speedDropTimer = null;
-        this.deactivationTimer = null;
-        
-        // Location and contacts
+        this.maxHistoryLength = 10;
+        this.threshold = 3.5; // g-force threshold
+        this.countdownTime = 10; // seconds
+        this.countdownInterval = null;
         this.location = null;
         this.contacts = [];
-        
-        // Countdown
-        this.countdownInterval = null;
-        
-        // Settings
         this.settings = {
             enableSound: true,
             enableVibration: true,
-            backgroundMonitoring: true
+            speedUnit: 'kmh' // 'kmh' or 'mph'
         };
         
-        // WhatsApp configuration
-        this.whatsapp = {
-            apiKey: localStorage.getItem('mads_whatsapp_apikey') || '',
-            phoneNumber: localStorage.getItem('mads_whatsapp_phone') || '',
-            isConfigured: false
-        };
+        // Speed tracking properties
+        this.speedHistory = [];
+        this.maxSpeedHistory = 30; // Keep last 30 readings
+        this.currentSpeed = 0;
+        this.maxSpeed = 0;
+        this.lastPosition = null;
+        this.lastSpeedTimestamp = null;
+        this.speedUpdateInterval = null;
         
         this.init();
     }
     
     async init() {
+        // Check for PWA install
         this.setupPWA();
+        
+        // Load saved data
         this.loadData();
+        
+        // Setup event listeners
         this.setupEventListeners();
+        
+        // Request permissions and start sensors
         await this.requestPermissions();
-        this.checkWhatsAppConfig();
-        this.startBackgroundMonitoring();
-        this.updateUI();
-        console.log('MADS initialized - Mobile Accident Detection System');
+        
+        // Start speed tracking
+        this.startSpeedTracking();
+        
+        // Update status display
+        this.updateStatus();
+    }
+    
+    setupPWA() {
+        let deferredPrompt;
+        const installBtn = document.getElementById('install-btn');
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBtn.style.display = 'flex';
+            
+            installBtn.addEventListener('click', async () => {
+                if (!deferredPrompt) return;
+                
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                
+                if (outcome === 'accepted') {
+                    installBtn.style.display = 'none';
+                }
+                
+                deferredPrompt = null;
+            });
+        });
+        
+        window.addEventListener('appinstalled', () => {
+            installBtn.style.display = 'none';
+            deferredPrompt = null;
+        });
     }
     
     setupEventListeners() {
-        // Manual controls
-        document.getElementById('toggle-system')?.addEventListener('click', () => this.manualToggle());
-        document.getElementById('force-stop')?.addEventListener('click', () => this.forceStop());
+        // Toggle system
+        document.getElementById('toggle-system').addEventListener('click', () => this.toggleSystem());
         
-        // Test buttons
-        document.getElementById('test-impact')?.addEventListener('click', () => this.testImpact());
-        document.getElementById('test-speed-drop')?.addEventListener('click', () => this.testSpeedDrop());
-        document.getElementById('test-whatsapp')?.addEventListener('click', () => this.testWhatsApp());
+        // Test alert
+        document.getElementById('test-alert').addEventListener('click', () => this.testAlert());
         
         // Contact management
-        document.getElementById('add-contact')?.addEventListener('click', () => this.showContactModal());
-        document.getElementById('cancel-contact')?.addEventListener('click', () => this.hideContactModal());
-        document.getElementById('save-contact')?.addEventListener('click', () => this.saveContact());
-        
-        // WhatsApp setup
-        document.getElementById('setup-whatsapp')?.addEventListener('click', () => this.showWhatsAppModal());
-        document.getElementById('cancel-whatsapp')?.addEventListener('click', () => this.hideWhatsAppModal());
-        document.getElementById('save-whatsapp')?.addEventListener('click', () => this.saveWhatsAppConfig());
+        document.getElementById('add-contact').addEventListener('click', () => this.showContactModal());
+        document.getElementById('cancel-contact').addEventListener('click', () => this.hideContactModal());
+        document.getElementById('save-contact').addEventListener('click', () => this.saveContact());
         
         // Countdown controls
-        document.getElementById('cancel-alert')?.addEventListener('click', () => this.cancelAlert());
-        document.getElementById('send-now')?.addEventListener('click', () => this.sendEmergencyAlert());
+        document.getElementById('cancel-alert').addEventListener('click', () => this.cancelAlert());
+        document.getElementById('send-now').addEventListener('click', () => this.sendEmergencyAlert());
         
         // Settings
-        document.getElementById('threshold')?.addEventListener('input', (e) => this.updateThreshold(e.target.value));
-        document.getElementById('speed-threshold')?.addEventListener('input', (e) => this.updateSpeedThreshold(e.target.value));
-        document.getElementById('speed-drop-threshold')?.addEventListener('input', (e) => this.updateSpeedDropThreshold(e.target.value));
-        document.getElementById('countdown-time')?.addEventListener('change', (e) => {
-            this.countdownTime = parseInt(e.target.value);
+        document.getElementById('threshold').addEventListener('input', (e) => this.updateThreshold(e.target.value));
+        document.getElementById('countdown-time').addEventListener('change', (e) => this.countdownTime = parseInt(e.target.value));
+        document.getElementById('enable-sound').addEventListener('change', (e) => this.settings.enableSound = e.target.checked);
+        document.getElementById('enable-vibration').addEventListener('change', (e) => this.settings.enableVibration = e.target.checked);
+        document.getElementById('speed-unit').addEventListener('change', (e) => {
+            this.settings.speedUnit = e.target.value;
+            this.updateSpeedDisplay();
             this.saveSettings();
-        });
-        document.getElementById('enable-sound')?.addEventListener('change', (e) => {
-            this.settings.enableSound = e.target.checked;
-            this.saveSettings();
-        });
-        document.getElementById('enable-vibration')?.addEventListener('change', (e) => {
-            this.settings.enableVibration = e.target.checked;
-            this.saveSettings();
-        });
-        document.getElementById('background-monitoring')?.addEventListener('change', (e) => {
-            this.settings.backgroundMonitoring = e.target.checked;
-            this.saveSettings();
-            if (e.target.checked) {
-                this.startBackgroundMonitoring();
-            }
         });
         
-        // Battery monitoring
+        // Install button
         if ('getBattery' in navigator) {
             navigator.getBattery().then(battery => {
                 this.updateBatteryStatus(battery);
@@ -122,17 +114,17 @@ class MADS {
     
     async requestPermissions() {
         try {
-            // Notification permission
+            // Request notification permission
             if ('Notification' in window && Notification.permission !== 'granted') {
                 await Notification.requestPermission();
             }
             
-            // Geolocation for speed and location
+            // Request geolocation permission
             if ('geolocation' in navigator) {
                 this.watchLocation();
             }
             
-            // Motion sensors
+            // Check for DeviceMotion API
             if (typeof DeviceMotionEvent !== 'undefined' && 
                 typeof DeviceMotionEvent.requestPermission === 'function') {
                 try {
@@ -141,14 +133,14 @@ class MADS {
                         this.setupMotionSensors();
                     }
                 } catch (error) {
-                    console.warn('Motion permission denied:', error);
+                    console.warn('DeviceMotion permission denied:', error);
                 }
             } else {
                 this.setupMotionSensors();
             }
             
         } catch (error) {
-            console.error('MADS: Permission request failed', error);
+            console.error('Permission request failed:', error);
         }
     }
     
@@ -157,153 +149,199 @@ class MADS {
             window.addEventListener('devicemotion', (event) => {
                 this.handleMotion(event);
             });
-            document.getElementById('sensor-status').innerHTML = '<i class="fas fa-check-circle" style="color: var(--success);"></i> Sensors: Active';
+            
+            document.getElementById('sensor-status').textContent = 'Sensors: Active';
+        } else {
+            document.getElementById('sensor-status').textContent = 'Sensors: Not Available';
         }
+    }
+    
+    startSpeedTracking() {
+        // Update speed display every second
+        this.speedUpdateInterval = setInterval(() => {
+            this.updateSpeedDisplay();
+        }, 1000);
     }
     
     watchLocation() {
         if ('geolocation' in navigator) {
             navigator.geolocation.watchPosition(
                 (position) => {
-                    // Update location
-                    this.location = {
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        accuracy: position.coords.accuracy,
-                        speed: position.coords.speed || 0
-                    };
-                    
-                    // Calculate speed in km/h
-                    const speedKmh = (this.location.speed * 3.6).toFixed(1);
-                    this.updateSpeed(speedKmh);
-                    
-                    document.getElementById('gps-status').innerHTML = '<i class="fas fa-check-circle" style="color: var(--success);"></i> GPS: Active';
+                    this.handleLocationUpdate(position);
                 },
                 (error) => {
                     console.error('GPS Error:', error);
-                    document.getElementById('gps-status').innerHTML = '<i class="fas fa-exclamation-triangle" style="color: var(--danger);"></i> GPS: Error';
+                    document.getElementById('gps-status').textContent = 'GPS: Error';
+                    document.getElementById('speed-value').innerHTML = '0 <span class="unit">km/h</span>';
                 },
                 {
                     enableHighAccuracy: true,
-                    maximumAge: 1000,
+                    maximumAge: 0,
                     timeout: 5000
                 }
             );
         }
     }
     
-    updateSpeed(speed) {
-        // Store in history
-        this.speedHistory.push({
-            speed: parseFloat(speed),
-            timestamp: Date.now()
-        });
+    handleLocationUpdate(position) {
+        // Update location
+        this.location = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            speed: position.coords.speed, // Speed in m/s
+            timestamp: position.timestamp
+        };
         
-        if (this.speedHistory.length > this.maxHistoryLength) {
-            this.speedHistory.shift();
-        }
+        document.getElementById('gps-status').textContent = 'GPS: Active';
         
-        // Update display
-        document.getElementById('current-speed').textContent = speed;
-        document.getElementById('speed-status').innerHTML = `<i class="fas fa-tachometer-alt"></i> Speed: ${speed} km/h`;
-        
-        // Update threshold bar
-        const speedPercent = Math.min((parseFloat(speed) / this.speedThreshold) * 100, 100);
-        document.getElementById('speed-threshold-fill').style.width = `${speedPercent}%`;
-        
-        // Auto-activation logic
-        this.checkAutoActivation(parseFloat(speed));
-        
-        // Check for speed drop (crash detection)
-        this.checkSpeedDrop(parseFloat(speed));
-        
-        // Update speed history display
-        this.updateSpeedHistory();
-    }
-    
-    checkAutoActivation(currentSpeed) {
-        if (!this.settings.backgroundMonitoring) return;
-        
-        if (currentSpeed >= this.speedThreshold && !this.isActive) {
-            // Speed crossed threshold - activate protection
-            this.activateProtection('Speed > ' + this.speedThreshold + ' km/h');
-        } else if (currentSpeed < this.speedThreshold && this.isActive && !this.isDetecting) {
-            // Speed dropped below threshold - schedule deactivation
-            this.scheduleDeactivation();
-        } else if (currentSpeed >= this.speedThreshold && this.deactivationTimer) {
-            // Speed went back up - cancel deactivation
-            this.cancelDeactivation();
-        }
-    }
-    
-    activateProtection(reason) {
-        this.isActive = true;
-        this.cancelDeactivation();
-        
-        // Update UI
-        document.getElementById('system-status').innerHTML = `
-            <div class="indicator active"></div>
-            <span>🟢 PROTECTION ACTIVE</span>
-        `;
-        document.getElementById('protection-reason').innerHTML = `<small>Active: ${reason}</small>`;
-        document.getElementById('toggle-system').style.display = 'none';
-        document.getElementById('force-stop').style.display = 'block';
-        
-        // Show notification
-        this.showNotification('MADS Protection Active', 'Monitoring for accidents');
-        
-        // If in background, show persistent notification
-        if (document.hidden) {
-            this.showBackgroundNotification('Protection Active', 'Speed: ' + document.getElementById('current-speed').textContent + ' km/h');
-        }
-    }
-    
-    deactivateProtection(reason) {
-        this.isActive = false;
-        
-        // Update UI
-        document.getElementById('system-status').innerHTML = `
-            <div class="indicator inactive"></div>
-            <span>⚫ PROTECTION INACTIVE</span>
-        `;
-        document.getElementById('protection-reason').innerHTML = `<small>${reason || 'Waiting for speed > 20 km/h'}</small>`;
-        document.getElementById('toggle-system').style.display = 'block';
-        document.getElementById('force-stop').style.display = 'none';
-    }
-    
-    scheduleDeactivation() {
-        if (this.deactivationTimer) return;
-        
-        this.deactivationTimer = setTimeout(() => {
-            this.deactivateProtection('Speed below threshold for 10 seconds');
-            this.deactivationTimer = null;
-        }, 10000); // 10 seconds delay
-        
-        document.getElementById('protection-reason').innerHTML = '<small>Deactivating in 10s if speed stays low...</small>';
-    }
-    
-    cancelDeactivation() {
-        if (this.deactivationTimer) {
-            clearTimeout(this.deactivationTimer);
-            this.deactivationTimer = null;
-        }
-    }
-    
-    checkSpeedDrop(currentSpeed) {
-        if (!this.isActive || this.isDetecting) return;
-        
-        // Calculate speed drop from history
-        if (this.speedHistory.length > 2) {
-            const prevSpeed = this.speedHistory[this.speedHistory.length - 2].speed;
-            const speedDrop = prevSpeed - currentSpeed;
+        // Calculate speed from GPS if available
+        if (position.coords.speed !== null && position.coords.speed !== undefined) {
+            // Convert m/s to km/h or mph
+            let speed = position.coords.speed * 3.6; // km/h
             
-            document.getElementById('speed-drop').textContent = speedDrop.toFixed(1) + ' km/h';
+            // Update current speed
+            this.currentSpeed = speed;
             
-            // If speed drops suddenly more than threshold
-            if (speedDrop > this.speedDropThreshold) {
-                console.log(`MADS: Speed drop detected - ${speedDrop.toFixed(1)} km/h`);
-                this.detectCrash('speed_drop', speedDrop);
+            // Track max speed
+            if (speed > this.maxSpeed) {
+                this.maxSpeed = speed;
             }
+            
+            // Add to history
+            this.speedHistory.push({
+                speed: speed,
+                timestamp: position.timestamp
+            });
+            
+            // Keep history limited
+            if (this.speedHistory.length > this.maxSpeedHistory) {
+                this.speedHistory.shift();
+            }
+            
+            // Update display
+            this.updateSpeedDisplay();
+        } else {
+            // Fallback to manual speed calculation if GPS speed not available
+            this.calculateSpeedFromPosition(position);
+        }
+    }
+    
+    calculateSpeedFromPosition(position) {
+        if (this.lastPosition && this.lastSpeedTimestamp) {
+            const timeDiff = (position.timestamp - this.lastSpeedTimestamp) / 1000; // in seconds
+            
+            if (timeDiff > 0) {
+                // Calculate distance using Haversine formula
+                const distance = this.calculateDistance(
+                    this.lastPosition.coords.latitude,
+                    this.lastPosition.coords.longitude,
+                    position.coords.latitude,
+                    position.coords.longitude
+                );
+                
+                // Calculate speed in km/h
+                const speed = (distance / timeDiff) * 3.6;
+                
+                // Filter out unrealistic speeds (e.g., GPS noise when stationary)
+                if (speed < 200) { // Max reasonable bike speed
+                    this.currentSpeed = speed;
+                    
+                    if (speed > this.maxSpeed) {
+                        this.maxSpeed = speed;
+                    }
+                    
+                    this.speedHistory.push({
+                        speed: speed,
+                        timestamp: position.timestamp
+                    });
+                    
+                    if (this.speedHistory.length > this.maxSpeedHistory) {
+                        this.speedHistory.shift();
+                    }
+                    
+                    this.updateSpeedDisplay();
+                }
+            }
+        }
+        
+        this.lastPosition = position;
+        this.lastSpeedTimestamp = position.timestamp;
+    }
+    
+    calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371e3; // Earth's radius in meters
+        const φ1 = lat1 * Math.PI / 180;
+        const φ2 = lat2 * Math.PI / 180;
+        const Δφ = (lat2 - lat1) * Math.PI / 180;
+        const Δλ = (lon2 - lon1) * Math.PI / 180;
+        
+        const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        
+        return R * c; // Distance in meters
+    }
+    
+    updateSpeedDisplay() {
+        const speedElement = document.getElementById('speed-value');
+        const maxSpeedElement = document.getElementById('max-speed');
+        
+        if (speedElement) {
+            let displaySpeed = this.currentSpeed;
+            let unit = 'km/h';
+            
+            // Convert to mph if selected
+            if (this.settings.speedUnit === 'mph') {
+                displaySpeed = this.currentSpeed * 0.621371;
+                unit = 'mph';
+            }
+            
+            speedElement.innerHTML = `${Math.round(displaySpeed)} <span class="unit">${unit}</span>`;
+            
+            // Change color based on speed
+            if (this.currentSpeed > 80) {
+                speedElement.style.color = 'var(--primary)';
+            } else if (this.currentSpeed > 50) {
+                speedElement.style.color = 'var(--warning)';
+            } else {
+                speedElement.style.color = 'var(--safe)';
+            }
+        }
+        
+        if (maxSpeedElement) {
+            let displayMaxSpeed = this.maxSpeed;
+            let unit = 'km/h';
+            
+            if (this.settings.speedUnit === 'mph') {
+                displayMaxSpeed = this.maxSpeed * 0.621371;
+                unit = 'mph';
+            }
+            
+            maxSpeedElement.innerHTML = `${Math.round(displayMaxSpeed)} <span class="unit">${unit}</span>`;
+        }
+        
+        // Update speed trend
+        this.updateSpeedTrend();
+    }
+    
+    updateSpeedTrend() {
+        const trendElement = document.getElementById('speed-trend');
+        if (!trendElement || this.speedHistory.length < 2) return;
+        
+        const lastTwo = this.speedHistory.slice(-2);
+        const speedDiff = lastTwo[1].speed - lastTwo[0].speed;
+        
+        if (Math.abs(speedDiff) < 1) {
+            trendElement.innerHTML = '<i class="fas fa-minus"></i> Stable';
+            trendElement.style.color = 'var(--text-secondary)';
+        } else if (speedDiff > 0) {
+            trendElement.innerHTML = '<i class="fas fa-arrow-up"></i> Accelerating';
+            trendElement.style.color = 'var(--warning)';
+        } else {
+            trendElement.innerHTML = '<i class="fas fa-arrow-down"></i> Decelerating';
+            trendElement.style.color = 'var(--safe)';
         }
     }
     
@@ -311,65 +349,94 @@ class MADS {
         const acceleration = event.accelerationIncludingGravity || event.acceleration;
         if (!acceleration) return;
         
+        // Calculate total g-force
         const gForce = Math.sqrt(
             Math.pow(acceleration.x || 0, 2) +
             Math.pow(acceleration.y || 0, 2) +
             Math.pow(acceleration.z || 0, 2)
         ) / 9.81;
         
+        // Update display
         document.getElementById('acceleration').textContent = `${gForce.toFixed(2)} g`;
         
+        // Add to history
         this.accelerationHistory.push(gForce);
         if (this.accelerationHistory.length > this.maxHistoryLength) {
             this.accelerationHistory.shift();
         }
         
+        // Calculate jerk (rate of change of acceleration)
         if (this.accelerationHistory.length >= 2) {
             const jerk = Math.abs(this.accelerationHistory[this.accelerationHistory.length - 1] - 
                                 this.accelerationHistory[this.accelerationHistory.length - 2]);
             document.getElementById('last-jerk').textContent = `${jerk.toFixed(2)} g/s`;
             
-            // Check for impact
-            if (this.isActive && !this.isDetecting && gForce > this.threshold && jerk > 1.5) {
-                this.detectCrash('impact', gForce);
+            // Check for sudden impact (high jerk + high g-force)
+            // Adjust threshold based on speed - higher speed = more sensitive
+            let speedAdjustedThreshold = this.threshold;
+            if (this.currentSpeed > 60) {
+                speedAdjustedThreshold = this.threshold * 0.8; // More sensitive at high speed
+            } else if (this.currentSpeed > 30) {
+                speedAdjustedThreshold = this.threshold * 0.9;
+            }
+            
+            if (this.isActive && !this.isDetecting && 
+                gForce > speedAdjustedThreshold && jerk > 1.5) {
+                this.detectImpact(gForce);
             }
         }
         
         // Update progress bar
         const progress = Math.min((gForce / this.threshold) * 100, 100);
         document.getElementById('impact-progress').style.width = `${progress}%`;
+        
+        // Update impact force display
         document.getElementById('impact-force').textContent = `${gForce.toFixed(2)} g`;
+        
+        // Change color based on severity
+        const progressFill = document.getElementById('impact-progress');
+        if (gForce > this.threshold) {
+            progressFill.style.background = 'linear-gradient(90deg, var(--warning), var(--primary))';
+        } else if (gForce > this.threshold * 0.7) {
+            progressFill.style.background = 'linear-gradient(90deg, var(--safe), var(--warning))';
+        } else {
+            progressFill.style.background = 'linear-gradient(90deg, var(--safe), var(--warning), var(--primary))';
+        }
     }
     
-    detectCrash(type, value) {
+    detectImpact(gForce) {
         this.isDetecting = true;
         
-        let reason = '';
-        if (type === 'impact') {
-            reason = `Impact detected: ${value.toFixed(1)}g`;
-        } else {
-            reason = `Sudden speed drop: ${value.toFixed(1)} km/h`;
-        }
+        // Log speed at impact
+        console.log(`Impact detected at speed: ${this.currentSpeed.toFixed(1)} km/h`);
         
-        this.triggerEmergencyAlert(reason);
+        // Trigger emergency alert
+        this.triggerEmergencyAlert(gForce);
     }
     
-    async triggerEmergencyAlert(reason) {
-        console.log(`MADS: Crash detected - ${reason}`);
+    async triggerEmergencyAlert(gForce) {
+        console.log(`Impact detected: ${gForce.toFixed(2)}g at ${this.currentSpeed.toFixed(1)} km/h`);
         
+        // Update UI for emergency
         document.getElementById('system-status').innerHTML = `
             <div class="indicator alert"></div>
-            <span>🚨 CRASH DETECTED!</span>
+            <span>ALERT TRIGGERED!</span>
         `;
         
-        this.showCountdownOverlay(reason);
+        // Show countdown overlay
+        this.showCountdownOverlay();
         
+        // Start countdown
         let timeLeft = this.countdownTime;
         document.getElementById('countdown-timer').textContent = timeLeft;
         
-        this.updateLocationInfo();
+        // Update location and speed info in overlay
+        this.updateEmergencyInfo();
+        
+        // Start alarm and vibration
         this.startAlarm();
         
+        // Start countdown
         this.countdownInterval = setInterval(() => {
             timeLeft--;
             document.getElementById('countdown-timer').textContent = timeLeft;
@@ -381,10 +448,49 @@ class MADS {
         }, 1000);
     }
     
-    showCountdownOverlay(reason) {
-        document.getElementById('detection-reason').textContent = reason;
+    updateEmergencyInfo() {
+        const locationInfo = document.getElementById('location-info');
+        const speedInfo = document.getElementById('speed-info');
+        
+        if (this.location) {
+            locationInfo.innerHTML = `
+                <i class="fas fa-map-marker-alt"></i>
+                ${this.location.latitude.toFixed(6)}, ${this.location.longitude.toFixed(6)}
+                <br><small>Accuracy: ${Math.round(this.location.accuracy)} meters</small>
+            `;
+        } else {
+            locationInfo.innerHTML = '<i class="fas fa-map-marker-alt"></i> Getting location...';
+            this.getCurrentLocation().then(() => {
+                if (this.location) {
+                    locationInfo.innerHTML = `
+                        <i class="fas fa-map-marker-alt"></i>
+                        ${this.location.latitude.toFixed(6)}, ${this.location.longitude.toFixed(6)}
+                        <br><small>Accuracy: ${Math.round(this.location.accuracy)} meters</small>
+                    `;
+                }
+            });
+        }
+        
+        if (speedInfo) {
+            let displaySpeed = this.currentSpeed;
+            let unit = 'km/h';
+            
+            if (this.settings.speedUnit === 'mph') {
+                displaySpeed = this.currentSpeed * 0.621371;
+                unit = 'mph';
+            }
+            
+            speedInfo.innerHTML = `
+                <i class="fas fa-tachometer-alt"></i>
+                Speed at impact: ${Math.round(displaySpeed)} ${unit}
+            `;
+        }
+    }
+    
+    showCountdownOverlay() {
         document.getElementById('countdown-overlay').style.display = 'flex';
         document.body.classList.add('vibrate');
+        this.updateEmergencyInfo();
     }
     
     hideCountdownOverlay() {
@@ -418,211 +524,88 @@ class MADS {
         this.isDetecting = false;
         this.stopAlarm();
         this.hideCountdownOverlay();
-        this.updateUI();
-        this.showNotification('Alert Cancelled', 'System is back to monitoring');
+        this.updateStatus();
+        
+        // Show confirmation
+        this.showNotification('Alert cancelled', 'System is back to monitoring');
     }
     
     async sendEmergencyAlert() {
         clearInterval(this.countdownInterval);
         this.stopAlarm();
+        this.hideCountdownOverlay();
         
-        this.showProgress('🚨 Sending emergency alerts...');
-        
+        // Get current location if not available
         if (!this.location) {
             await this.getCurrentLocation();
         }
         
-        let successCount = 0;
-        
-        // Send WhatsApp alerts if configured
-        if (this.whatsapp.isConfigured) {
-            const message = this.createWhatsAppMessage();
-            const sent = await this.sendWhatsAppAlert(message);
-            if (sent) successCount = this.contacts.length;
+        // Send alerts to all contacts
+        for (const contact of this.contacts) {
+            await this.sendAlertToContact(contact);
         }
         
-        this.hideProgress();
-        
-        if (successCount > 0) {
-            this.showToast(`✅ Emergency alerts sent to ${successCount} contact(s)`, 'success');
-        } else {
-            this.showToast('⚠️ No WhatsApp configured - please setup alerts', 'warning');
-            this.showWhatsAppModal();
-        }
-        
-        this.hideCountdownOverlay();
+        // Reset system
         this.isDetecting = false;
-        this.updateUI();
+        this.updateStatus();
+        
+        // Show confirmation
+        this.showNotification('Emergency alert sent!', 'Your contacts have been notified');
     }
     
-    createWhatsAppMessage() {
+    async sendAlertToContact(contact) {
+        const message = this.createEmergencyMessage(contact.name);
+        const phoneNumber = contact.phone.replace(/\D/g, '');
+        
+        // Try WhatsApp
+        const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+        
+        // Open WhatsApp in new tab
+        window.open(whatsappUrl, '_blank');
+        
+        // Fallback to SMS if WhatsApp fails
+        setTimeout(() => {
+            if ('sms' in navigator) {
+                navigator.ms.sendSms(phoneNumber, message);
+            }
+        }, 2000);
+    }
+    
+    createEmergencyMessage(contactName) {
         const time = new Date().toLocaleTimeString();
         const date = new Date().toLocaleDateString();
-        const speed = document.getElementById('current-speed').textContent;
-        const mapsLink = this.location ? 
+        
+        let displaySpeed = this.currentSpeed;
+        let speedUnit = 'km/h';
+        
+        if (this.settings.speedUnit === 'mph') {
+            displaySpeed = this.currentSpeed * 0.621371;
+            speedUnit = 'mph';
+        }
+        
+        const locationLink = this.location ? 
             `https://maps.google.com/?q=${this.location.latitude},${this.location.longitude}` :
             'Location unavailable';
         
-        return `🚨 *MADS - EMERGENCY ALERT* 🚨
+        return `🚨 EMERGENCY ALERT 🚨
 
-*I've been in a bike accident!*
+Bike Accident Detected!
 
-📍 *Location:* ${mapsLink}
-📍 *Coordinates:* ${this.location?.latitude || 'N/A'}, ${this.location?.longitude || 'N/A'}
-🕒 *Time:* ${time}
-📅 *Date:* ${date}
-📊 *Speed at impact:* ${speed} km/h
+👤 User needs immediate assistance
+📍 Location: ${locationLink}
+🕒 Time: ${time}
+📅 Date: ${date}
+⚡ Impact Speed: ${Math.round(displaySpeed)} ${speedUnit}
+📊 Max Speed Recorded: ${Math.round(this.maxSpeed)} km/h
 
-Please check on me immediately or call emergency services.
+This is an automated alert from BikeGuard.
+If you receive this message, please check on the user immediately.
 
----
-_Mobile Accident Detection System_ 🚲`;
-    }
-    
-    async sendWhatsAppAlert(message) {
-        if (!this.whatsapp.isConfigured) return false;
-        
-        const encodedMessage = encodeURIComponent(message);
-        const url = `https://api.callmebot.com/whatsapp.php?phone=${this.whatsapp.phoneNumber}&text=${encodedMessage}&apikey=${this.whatsapp.apiKey}`;
-        
-        try {
-            const response = await fetch(url);
-            const text = await response.text();
-            
-            if (response.status === 200 && text.includes('Message sent')) {
-                console.log('WhatsApp alert sent');
-                return true;
-            }
-            return false;
-        } catch (error) {
-            console.error('WhatsApp send failed:', error);
-            return false;
-        }
-    }
-    
-    checkWhatsAppConfig() {
-        this.whatsapp.isConfigured = !!(this.whatsapp.apiKey && this.whatsapp.phoneNumber);
-        
-        const statusEl = document.getElementById('whatsapp-status');
-        if (this.whatsapp.isConfigured) {
-            statusEl.innerHTML = '<i class="fab fa-whatsapp" style="color: #25D366;"></i> WhatsApp: Configured';
-            statusEl.classList.add('configured');
-        } else {
-            statusEl.innerHTML = '<i class="fab fa-whatsapp"></i> WhatsApp: Not configured';
-        }
-    }
-    
-    showWhatsAppModal() {
-        document.getElementById('whatsapp-modal').style.display = 'flex';
-        document.getElementById('whatsapp-apikey').value = this.whatsapp.apiKey;
-        document.getElementById('whatsapp-phone').value = this.whatsapp.phoneNumber;
-    }
-    
-    hideWhatsAppModal() {
-        document.getElementById('whatsapp-modal').style.display = 'none';
-    }
-    
-    saveWhatsAppConfig() {
-        const apiKey = document.getElementById('whatsapp-apikey').value.trim();
-        const phone = document.getElementById('whatsapp-phone').value.trim();
-        
-        if (!apiKey || !phone) {
-            this.showToast('Please fill all fields', 'error');
-            return;
-        }
-        
-        this.whatsapp.apiKey = apiKey;
-        this.whatsapp.phoneNumber = phone.replace(/\D/g, '');
-        this.whatsapp.isConfigured = true;
-        
-        localStorage.setItem('mads_whatsapp_apikey', apiKey);
-        localStorage.setItem('mads_whatsapp_phone', this.whatsapp.phoneNumber);
-        
-        this.hideWhatsAppModal();
-        this.checkWhatsAppConfig();
-        this.showToast('WhatsApp configured successfully!', 'success');
-    }
-    
-    async testWhatsApp() {
-        if (!this.whatsapp.isConfigured) {
-            this.showToast('Please configure WhatsApp first', 'warning');
-            this.showWhatsAppModal();
-            return;
-        }
-        
-        const testMessage = `🔧 *MADS Test Message* 🔧\n\nYour WhatsApp alert system is working correctly!`;
-        
-        this.showToast('Sending test message...', 'info');
-        const sent = await this.sendWhatsAppAlert(testMessage);
-        
-        if (sent) {
-            this.showToast('✅ Test message sent! Check your WhatsApp', 'success');
-        } else {
-            this.showToast('❌ Test failed. Check your API key', 'error');
-        }
-    }
-    
-    testImpact() {
-        if (!this.isActive) {
-            this.activateProtection('Manual test');
-        }
-        this.detectCrash('impact', this.threshold + 1);
-    }
-    
-    testSpeedDrop() {
-        if (!this.isActive) {
-            this.activateProtection('Manual test');
-        }
-        this.detectCrash('speed_drop', this.speedDropThreshold + 5);
-    }
-    
-    manualToggle() {
-        if (this.isActive) {
-            this.forceStop();
-        } else {
-            this.activateProtection('Manual activation');
-        }
-    }
-    
-    forceStop() {
-        this.isActive = false;
-        this.cancelDeactivation();
-        this.deactivateProtection('Manually stopped');
-        this.showToast('Protection stopped', 'info');
-    }
-    
-    startBackgroundMonitoring() {
-        if (!this.settings.backgroundMonitoring) return;
-        
-        // Monitor page visibility
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                this.isBackgroundMode = true;
-                if (this.isActive) {
-                    this.showBackgroundNotification('Protection Active', 'Monitoring in background');
-                }
-            } else {
-                this.isBackgroundMode = false;
-            }
-        });
-    }
-    
-    showBackgroundNotification(title, body) {
-        if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('MADS: ' + title, {
-                body: body,
-                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚲</text></svg>',
-                tag: 'mads-background'
-            });
-        }
-    }
-    
-    updateSpeedHistory() {
-        const historyEl = document.getElementById('speed-history');
-        if (this.speedHistory.length > 1) {
-            const recent = this.speedHistory.slice(-5).map(s => s.speed.toFixed(1)).join(' → ');
-            historyEl.innerHTML = `<small>Recent speeds: ${recent} km/h</small>`;
-        }
+Latitude: ${this.location?.latitude || 'N/A'}
+Longitude: ${this.location?.longitude || 'N/A'}
+Accuracy: ${this.location?.accuracy ? Math.round(this.location.accuracy) + ' meters' : 'N/A'}
+
+⚠️ Please take appropriate action!`;
     }
     
     async getCurrentLocation() {
@@ -630,16 +613,17 @@ _Mobile Accident Detection System_ 🚲`;
             if ('geolocation' in navigator) {
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
-                        this.location = {
-                            latitude: position.coords.latitude,
-                            longitude: position.coords.longitude,
-                            accuracy: position.coords.accuracy,
-                            speed: position.coords.speed || 0
-                        };
+                        this.handleLocationUpdate(position);
                         resolve(this.location);
                     },
-                    (error) => resolve(null),
-                    { enableHighAccuracy: true, timeout: 10000 }
+                    () => {
+                        resolve(null);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 5000,
+                        maximumAge: 0
+                    }
                 );
             } else {
                 resolve(null);
@@ -647,55 +631,52 @@ _Mobile Accident Detection System_ 🚲`;
         });
     }
     
-    updateLocationInfo() {
-        const locationInfo = document.getElementById('location-info');
-        if (this.location) {
-            locationInfo.innerHTML = `
-                📍 ${this.location.latitude.toFixed(6)}, ${this.location.longitude.toFixed(6)}
-                <br><small>Accuracy: ±${Math.round(this.location.accuracy)}m</small>
+    toggleSystem() {
+        this.isActive = !this.isActive;
+        
+        const toggleBtn = document.getElementById('toggle-system');
+        const statusIndicator = document.getElementById('system-status');
+        
+        if (this.isActive) {
+            toggleBtn.innerHTML = '<i class="fas fa-power-off"></i> Stop Protection';
+            toggleBtn.classList.remove('btn-primary');
+            toggleBtn.classList.add('btn-secondary');
+            statusIndicator.innerHTML = `
+                <div class="indicator active"></div>
+                <span>ACTIVE</span>
             `;
+            this.showNotification('Protection Activated', 'BikeGuard is now monitoring for accidents');
+            
+            // Reset max speed when activating
+            this.maxSpeed = 0;
         } else {
-            locationInfo.textContent = 'Getting location...';
-            this.getCurrentLocation().then(() => {
-                if (this.location) {
-                    locationInfo.innerHTML = `
-                        📍 ${this.location.latitude.toFixed(6)}, ${this.location.longitude.toFixed(6)}
-                        <br><small>Accuracy: ±${Math.round(this.location.accuracy)}m</small>
-                    `;
-                }
-            });
+            toggleBtn.innerHTML = '<i class="fas fa-power-off"></i> Start Protection';
+            toggleBtn.classList.remove('btn-secondary');
+            toggleBtn.classList.add('btn-primary');
+            statusIndicator.innerHTML = `
+                <div class="indicator inactive"></div>
+                <span>INACTIVE</span>
+            `;
+            this.showNotification('Protection Deactivated', 'BikeGuard is not monitoring');
         }
     }
     
-    showProgress(message) {
-        const progress = document.getElementById('sms-progress');
-        if (progress) {
-            progress.style.display = 'flex';
-            progress.innerHTML = `<i class="fas fa-spinner fa-spin"></i> <span>${message}</span>`;
+    testAlert() {
+        if (!this.isActive) {
+            this.showNotification('Please activate system first', 'Click "Start Protection" to begin monitoring');
+            return;
         }
-    }
-    
-    hideProgress() {
-        const progress = document.getElementById('sms-progress');
-        if (progress) progress.style.display = 'none';
+        
+        // Simulate an impact
+        this.detectImpact(this.threshold + 1);
+        
+        this.showNotification('Test Alert Started', 'Countdown initiated - cancel to stop test');
     }
     
     updateThreshold(value) {
         this.threshold = parseFloat(value);
         document.getElementById('threshold-value').textContent = `${value}g`;
         document.getElementById('threshold-display').textContent = `${value}g`;
-        this.saveSettings();
-    }
-    
-    updateSpeedThreshold(value) {
-        this.speedThreshold = parseInt(value);
-        document.getElementById('speed-threshold-display').textContent = `${value} km/h`;
-        this.saveSettings();
-    }
-    
-    updateSpeedDropThreshold(value) {
-        this.speedDropThreshold = parseInt(value);
-        document.getElementById('speed-drop-display').textContent = `${value} km/h`;
         this.saveSettings();
     }
     
@@ -714,16 +695,14 @@ _Mobile Accident Detection System_ 🚲`;
         const phone = document.getElementById('contact-phone').value.trim();
         
         if (!name || !phone) {
-            this.showToast('Please fill all fields', 'error');
+            this.showNotification('Please fill all fields', 'Name and phone number are required');
             return;
         }
-        
-        const cleanPhone = phone.replace(/\D/g, '');
         
         const contact = {
             id: Date.now(),
             name: name,
-            phone: cleanPhone
+            phone: phone
         };
         
         this.contacts.push(contact);
@@ -731,14 +710,13 @@ _Mobile Accident Detection System_ 🚲`;
         this.renderContacts();
         this.hideContactModal();
         
-        this.showToast(`${name} added to contacts`, 'success');
+        this.showNotification('Contact saved', `${name} added to emergency contacts`);
     }
     
     deleteContact(id) {
         this.contacts = this.contacts.filter(contact => contact.id !== id);
         this.saveContacts();
         this.renderContacts();
-        this.showToast('Contact removed', 'info');
     }
     
     renderContacts() {
@@ -748,8 +726,7 @@ _Mobile Accident Detection System_ 🚲`;
             contactsList.innerHTML = `
                 <div class="empty-contacts">
                     <i class="fas fa-user-plus"></i>
-                    <p>No emergency contacts added</p>
-                    <small>Add contacts who will receive WhatsApp alerts</small>
+                    <p>No contacts added yet</p>
                 </div>
             `;
             return;
@@ -761,91 +738,69 @@ _Mobile Accident Detection System_ 🚲`;
                     <h4>${contact.name}</h4>
                     <p>${contact.phone}</p>
                 </div>
-                <button class="delete-contact" onclick="mads.deleteContact(${contact.id})">
+                <button class="delete-contact" onclick="bikeGuard.deleteContact(${contact.id})">
                     <i class="fas fa-trash"></i>
                 </button>
             </div>
         `).join('');
     }
     
-    updateUI() {
+    updateStatus() {
+        // Update battery status
         if ('getBattery' in navigator) {
-            navigator.getBattery().then(battery => this.updateBatteryStatus(battery));
+            navigator.getBattery().then(battery => {
+                this.updateBatteryStatus(battery);
+            });
         }
     }
     
     updateBatteryStatus(battery) {
+        const batteryElem = document.getElementById('battery-status');
         const level = Math.round(battery.level * 100);
-        document.getElementById('battery-status').innerHTML = `<i class="fas fa-battery-${this.getBatteryIcon(level)}"></i> ${level}%`;
-    }
-    
-    getBatteryIcon(level) {
-        if (level >= 90) return 'full';
-        if (level >= 60) return 'three-quarters';
-        if (level >= 30) return 'half';
-        if (level >= 10) return 'quarter';
-        return 'empty';
-    }
-    
-    showToast(message, type = 'info') {
-        let toast = document.getElementById('mads-toast');
-        if (!toast) {
-            toast = document.createElement('div');
-            toast.id = 'mads-toast';
-            toast.className = 'mads-toast';
-            document.body.appendChild(toast);
-        }
         
-        toast.className = `mads-toast ${type}`;
-        toast.innerHTML = `<div class="toast-content"><i class="fas ${this.getToastIcon(type)}"></i><span>${message}</span></div>`;
-        toast.style.display = 'block';
+        batteryElem.textContent = `Battery: ${level}%`;
         
-        setTimeout(() => {
-            toast.style.animation = 'slideDown 0.3s ease';
-            setTimeout(() => {
-                toast.style.display = 'none';
-                toast.style.animation = '';
-            }, 300);
-        }, 3000);
-    }
-    
-    getToastIcon(type) {
-        switch(type) {
-            case 'success': return 'fa-check-circle';
-            case 'warning': return 'fa-exclamation-triangle';
-            case 'error': return 'fa-times-circle';
-            default: return 'fa-info-circle';
+        if (battery.charging) {
+            batteryElem.innerHTML += ' 🔌';
+        } else if (level < 20) {
+            batteryElem.innerHTML += ' ⚠️';
         }
     }
     
     showNotification(title, message) {
         if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(`MADS: ${title}`, { body: message });
+            new Notification(title, {
+                body: message,
+                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🚲</text></svg>'
+            });
         }
+        
+        // Also show in-page toast
+        this.showToast(message);
     }
     
-    setupPWA() {
-        let deferredPrompt;
-        const installBtn = document.getElementById('install-btn');
+    showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        toast.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--primary);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            z-index: 10000;
+            animation: slideInRight 0.3s ease;
+        `;
         
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();
-            deferredPrompt = e;
-            installBtn.style.display = 'flex';
-        });
+        document.body.appendChild(toast);
         
-        installBtn?.addEventListener('click', async () => {
-            if (!deferredPrompt) return;
-            deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
-            if (outcome === 'accepted') installBtn.style.display = 'none';
-            deferredPrompt = null;
-        });
-        
-        window.addEventListener('appinstalled', () => {
-            installBtn.style.display = 'none';
-            deferredPrompt = null;
-        });
+        setTimeout(() => {
+            toast.style.animation = 'slideOutRight 0.3s ease';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
     }
     
     saveData() {
@@ -853,89 +808,84 @@ _Mobile Accident Detection System_ 🚲`;
             contacts: this.contacts,
             settings: this.settings,
             threshold: this.threshold,
-            speedThreshold: this.speedThreshold,
-            speedDropThreshold: this.speedDropThreshold,
             countdownTime: this.countdownTime
         };
-        localStorage.setItem('mads_data', JSON.stringify(data));
+        localStorage.setItem('bikeGuard', JSON.stringify(data));
     }
     
     loadData() {
-        const saved = localStorage.getItem('mads_data');
+        const saved = localStorage.getItem('bikeGuard');
         if (saved) {
             try {
                 const data = JSON.parse(saved);
                 this.contacts = data.contacts || [];
-                this.settings = { ...this.settings, ...(data.settings || {}) };
+                this.settings = {...this.settings, ...data.settings};
                 this.threshold = data.threshold || 3.5;
-                this.speedThreshold = data.speedThreshold || 20;
-                this.speedDropThreshold = data.speedDropThreshold || 25;
                 this.countdownTime = data.countdownTime || 10;
                 
                 // Update UI
                 document.getElementById('threshold').value = this.threshold;
-                document.getElementById('threshold-display').textContent = this.threshold + 'g';
-                document.getElementById('threshold-value').textContent = this.threshold + 'g';
-                
-                document.getElementById('speed-threshold').value = this.speedThreshold;
-                document.getElementById('speed-threshold-display').textContent = this.speedThreshold + ' km/h';
-                
-                document.getElementById('speed-drop-threshold').value = this.speedDropThreshold;
-                document.getElementById('speed-drop-display').textContent = this.speedDropThreshold + ' km/h';
-                
+                document.getElementById('threshold-display').textContent = `${this.threshold}g`;
+                document.getElementById('threshold-value').textContent = `${this.threshold}g`;
                 document.getElementById('countdown-time').value = this.countdownTime;
                 document.getElementById('enable-sound').checked = this.settings.enableSound;
                 document.getElementById('enable-vibration').checked = this.settings.enableVibration;
-                document.getElementById('background-monitoring').checked = this.settings.backgroundMonitoring;
+                document.getElementById('speed-unit').value = this.settings.speedUnit;
                 
                 this.renderContacts();
             } catch (e) {
-                console.error('Failed to load data', e);
+                console.error('Failed to load saved data:', e);
             }
         }
     }
     
-    saveSettings() { this.saveData(); }
-    saveContacts() { this.saveData(); }
+    saveSettings() {
+        this.saveData();
+    }
+    
+    saveContacts() {
+        this.saveData();
+    }
+    
+    // Clean up on page unload
+    destroy() {
+        if (this.speedUpdateInterval) {
+            clearInterval(this.speedUpdateInterval);
+        }
+    }
 }
 
-// Initialize MADS
-const mads = new MADS();
-window.mads = mads;
-
-// Add styles
+// Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
+    window.bikeGuard = new BikeAccidentDetector();
+    
+    // Add CSS for toast animations
     const style = document.createElement('style');
     style.textContent = `
-        .mads-toast {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--primary);
-            color: white;
-            padding: 12px 24px;
-            border-radius: 8px;
-            z-index: 10001;
-            animation: slideUp 0.3s ease;
-            display: none;
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
-        .mads-toast.success { background: var(--success); }
-        .mads-toast.warning { background: var(--warning); }
-        .mads-toast.error { background: var(--danger); }
-        .toast-content { display: flex; align-items: center; gap: 10px; }
-        @keyframes slideUp {
-            from { opacity: 0; transform: translate(-50%, 20px); }
-            to { opacity: 1; transform: translate(-50%, 0); }
-        }
-        @keyframes slideDown {
-            from { opacity: 1; transform: translate(-50%, 0); }
-            to { opacity: 0; transform: translate(-50%, 20px); }
+        @keyframes slideOutRight {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
         }
     `;
     document.head.appendChild(style);
     
+    // Service Worker registration for PWA
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js').catch(console.log);
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js').catch(error => {
+                console.log('Service Worker registration failed:', error);
+            });
+        });
+    }
+});
+
+// Clean up on page unload
+window.addEventListener('beforeunload', () => {
+    if (window.bikeGuard) {
+        window.bikeGuard.destroy();
     }
 });
