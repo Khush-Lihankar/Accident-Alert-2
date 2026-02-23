@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#dc2626">
-    <meta name="description" content="MADS - Mobile Accident Detection System with Speed Monitoring">
+    <meta name="description" content="Bike Accident Detection System">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚲</text></svg>">
-    <title>MADS - Mobile Accident Detection</title>
+    <title>BikeGuard - Accident Detection</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -18,10 +18,6 @@
             <div class="status-item">
                 <i class="fas fa-satellite-dish"></i>
                 <span id="gps-status">Getting GPS...</span>
-            </div>
-            <div class="status-item">
-                <i class="fas fa-tachometer-alt"></i>
-                <span id="speed-status">Speed: 0 km/h</span>
             </div>
             <div class="status-item">
                 <i class="fas fa-sensor"></i>
@@ -39,75 +35,65 @@
                 <i class="fas fa-motorcycle"></i>
             </div>
             
-            <h1>MADS</h1>
-            <p class="subtitle">Mobile Accident Detection System</p>
+            <h1>BikeGuard</h1>
+            <p class="subtitle">Accident Detection System with Speed Tracking</p>
             
             <!-- System Status -->
             <div class="status-card">
                 <div class="status-header">
                     <i class="fas fa-shield-alt"></i>
-                    <h3>Protection Status</h3>
+                    <h3>System Status</h3>
                 </div>
                 <div class="status-content">
                     <div class="status-indicator" id="system-status">
                         <div class="indicator inactive"></div>
                         <span>INACTIVE</span>
                     </div>
-                    <div class="status-info" id="protection-reason">
-                        <small>Waiting for speed > 20 km/h</small>
-                    </div>
-                </div>
-                <div class="manual-controls">
                     <button class="btn btn-primary" id="toggle-system">
-                        <i class="fas fa-power-off"></i> Manual Start
-                    </button>
-                    <button class="btn btn-secondary" id="force-stop" style="display: none;">
-                        <i class="fas fa-stop"></i> Stop Protection
+                        <i class="fas fa-power-off"></i> Start Protection
                     </button>
                 </div>
             </div>
 
-            <!-- Speed Monitor -->
-            <div class="card speed-card">
-                <h3><i class="fas fa-tachometer-alt"></i> Speed Monitor</h3>
-                <div class="speed-display">
-                    <div class="speed-value" id="current-speed">0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="speed-threshold">
-                    <div class="threshold-indicator">
-                        <div class="threshold-bar">
-                            <div class="threshold-fill" id="speed-threshold-fill" style="width: 0%"></div>
-                        </div>
-                        <span>Auto-activation at 20 km/h</span>
-                    </div>
-                </div>
-                <div class="speed-history" id="speed-history">
-                    <small>Monitoring speed changes...</small>
-                </div>
-            </div>
-
-            <!-- Impact Monitor -->
+            <!-- Real-time Sensors Card (Updated with Speed) -->
             <div class="card">
-                <h3><i class="fas fa-wave-square"></i> Impact Monitor</h3>
+                <div class="status-header">
+                    <i class="fas fa-chart-line"></i>
+                    <h3>Live Tracking</h3>
+                </div>
+                
                 <div class="sensor-readings">
+                    <!-- Speed Display -->
+                    <div class="sensor speed-display">
+                        <label><i class="fas fa-tachometer-alt"></i> Current Speed</label>
+                        <div class="value" id="speed-value">0 <span class="unit">km/h</span></div>
+                        <div class="speed-trend" id="speed-trend">
+                            <i class="fas fa-minus"></i> Stable
+                        </div>
+                        <div class="max-speed">
+                            Max: <span id="max-speed">0 km/h</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Impact Monitor -->
                     <div class="sensor">
-                        <label>Acceleration</label>
+                        <label><i class="fas fa-bolt"></i> Acceleration</label>
                         <div class="value" id="acceleration">0.00 g</div>
                     </div>
                     <div class="sensor">
-                        <label>Impact Force</label>
+                        <label><i class="fas fa-weight-hanging"></i> Impact Force</label>
                         <div class="value" id="impact-force">0.00 g</div>
                     </div>
                     <div class="sensor">
-                        <label>Speed Drop</label>
-                        <div class="value" id="speed-drop">0 km/h</div>
+                        <label><i class="fas fa-wave-square"></i> Last Jerk</label>
+                        <div class="value" id="last-jerk">0.00 g/s</div>
                     </div>
                 </div>
+                
                 <div class="progress-container">
                     <div class="progress-label">
-                        <span>Impact Threshold</span>
-                        <span id="threshold-value">3.5g</span>
+                        <span>Impact Severity</span>
+                        <span>Threshold: <span id="threshold-display">3.5g</span></span>
                     </div>
                     <div class="progress-bar">
                         <div class="progress-fill" id="impact-progress"></div>
@@ -117,55 +103,38 @@
 
             <!-- Emergency Contacts -->
             <div class="card">
-                <h3><i class="fas fa-users"></i> Emergency Contacts</h3>
+                <div class="status-header">
+                    <i class="fas fa-users"></i>
+                    <h3>Emergency Contacts</h3>
+                    <button class="btn" id="add-contact" style="margin-left: auto; padding: 8px 12px;">
+                        <i class="fas fa-plus"></i> Add
+                    </button>
+                </div>
+                
                 <div class="contacts-list" id="contacts-list">
                     <div class="empty-contacts">
                         <i class="fas fa-user-plus"></i>
                         <p>No contacts added yet</p>
                     </div>
                 </div>
-                <button class="btn btn-secondary" id="add-contact">
-                    <i class="fas fa-plus"></i> Add Contact
-                </button>
-            </div>
-
-            <!-- WhatsApp Setup -->
-            <div class="card">
-                <h3><i class="fab fa-whatsapp"></i> WhatsApp Alert Setup</h3>
-                <div class="whatsapp-status" id="whatsapp-status">
-                    <i class="fab fa-whatsapp"></i> Not configured
-                </div>
-                <button class="btn btn-success" id="setup-whatsapp">
-                    <i class="fab fa-whatsapp"></i> Configure WhatsApp
-                </button>
-                <small class="help-text">Free automatic WhatsApp alerts via CallMeBot</small>
             </div>
 
             <!-- Settings -->
             <div class="card">
-                <h3><i class="fas fa-cog"></i> Detection Settings</h3>
+                <div class="status-header">
+                    <i class="fas fa-cog"></i>
+                    <h3>Settings</h3>
+                </div>
+                
                 <div class="settings">
                     <div class="setting-item">
                         <label for="threshold">Impact Sensitivity</label>
                         <div class="slider-container">
                             <input type="range" id="threshold" min="2" max="8" step="0.5" value="3.5">
-                            <span class="slider-value" id="threshold-display">3.5g</span>
+                            <span class="slider-value" id="threshold-value">3.5g</span>
                         </div>
                     </div>
-                    <div class="setting-item">
-                        <label for="speed-threshold">Auto-activation Speed</label>
-                        <div class="slider-container">
-                            <input type="range" id="speed-threshold" min="10" max="40" step="5" value="20">
-                            <span class="slider-value" id="speed-threshold-display">20 km/h</span>
-                        </div>
-                    </div>
-                    <div class="setting-item">
-                        <label for="speed-drop-threshold">Speed Drop Threshold</label>
-                        <div class="slider-container">
-                            <input type="range" id="speed-drop-threshold" min="10" max="50" step="5" value="25">
-                            <span class="slider-value" id="speed-drop-display">25 km/h</span>
-                        </div>
-                    </div>
+                    
                     <div class="setting-item">
                         <label for="countdown-time">Countdown Time</label>
                         <select id="countdown-time">
@@ -173,44 +142,38 @@
                             <option value="10" selected>10 seconds</option>
                             <option value="15">15 seconds</option>
                             <option value="20">20 seconds</option>
+                            <option value="30">30 seconds</option>
                         </select>
                     </div>
+                    
+                    <div class="setting-item">
+                        <label for="speed-unit">Speed Unit</label>
+                        <select id="speed-unit">
+                            <option value="kmh" selected>km/h</option>
+                            <option value="mph">mph</option>
+                        </select>
+                    </div>
+                    
                     <div class="setting-item">
                         <label>
                             <input type="checkbox" id="enable-sound" checked>
-                            Enable Alarm Sound
+                            <i class="fas fa-volume-up"></i> Enable Alarm Sound
                         </label>
                     </div>
+                    
                     <div class="setting-item">
                         <label>
                             <input type="checkbox" id="enable-vibration" checked>
-                            Enable Vibration
-                        </label>
-                    </div>
-                    <div class="setting-item">
-                        <label>
-                            <input type="checkbox" id="background-monitoring" checked>
-                            Background Monitoring
+                            <i class="fas fa-mobile-alt"></i> Enable Vibration
                         </label>
                     </div>
                 </div>
             </div>
 
-            <!-- Test Section -->
-            <div class="card test-card">
-                <h3><i class="fas fa-vial"></i> Test System</h3>
-                <div class="test-buttons">
-                    <button class="btn btn-test" id="test-impact">
-                        <i class="fas fa-wave-square"></i> Test Impact Detection
-                    </button>
-                    <button class="btn btn-test" id="test-speed-drop">
-                        <i class="fas fa-tachometer-alt"></i> Test Speed Drop
-                    </button>
-                    <button class="btn btn-test" id="test-whatsapp">
-                        <i class="fab fa-whatsapp"></i> Test WhatsApp Alert
-                    </button>
-                </div>
-            </div>
+            <!-- Test Button -->
+            <button class="btn btn-test" id="test-alert">
+                <i class="fas fa-vial"></i> Test Alert System
+            </button>
 
             <!-- Install PWA Button -->
             <button class="btn btn-install" id="install-btn" style="display: none;">
@@ -218,7 +181,7 @@
             </button>
         </div>
 
-        <!-- Countdown Overlay -->
+        <!-- Countdown Overlay (Updated with Speed Info) -->
         <div class="overlay" id="countdown-overlay">
             <div class="countdown-modal">
                 <div class="countdown-header">
@@ -226,19 +189,27 @@
                     <h2>ACCIDENT DETECTED!</h2>
                 </div>
                 <div class="countdown-body">
-                    <p id="detection-reason">Significant impact detected</p>
+                    <p>Are you okay? The system detected a significant impact.</p>
+                    
                     <div class="countdown-display">
                         <div class="countdown-circle">
                             <span id="countdown-timer">10</span>
                         </div>
                         <p class="countdown-text">Seconds until alert is sent</p>
                     </div>
-                    <div class="location-info">
+                    
+                    <div class="location-info" id="location-info">
                         <i class="fas fa-map-marker-alt"></i>
-                        <span id="location-info">Getting your location...</span>
+                        <span>Getting your location...</span>
                     </div>
-                    <div class="alert-details" id="alert-details"></div>
+                    
+                    <!-- Speed Info at Impact -->
+                    <div class="speed-info" id="speed-info">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span>Speed at impact: --</span>
+                    </div>
                 </div>
+                
                 <div class="countdown-actions">
                     <button class="btn btn-cancel" id="cancel-alert">
                         <i class="fas fa-times"></i> I'M OKAY (Cancel)
@@ -259,45 +230,12 @@
                     <input type="text" id="contact-name" placeholder="Contact Name">
                 </div>
                 <div class="form-group">
-                    <label for="contact-phone">Phone Number (with country code)</label>
+                    <label for="contact-phone">Phone Number</label>
                     <input type="tel" id="contact-phone" placeholder="+1234567890">
                 </div>
                 <div class="modal-actions">
                     <button class="btn btn-secondary" id="cancel-contact">Cancel</button>
                     <button class="btn btn-primary" id="save-contact">Save Contact</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- WhatsApp Setup Modal -->
-        <div class="overlay" id="whatsapp-modal">
-            <div class="modal whatsapp-modal">
-                <h3><i class="fab fa-whatsapp" style="color: #25D366;"></i> Setup WhatsApp Alerts</h3>
-                
-                <div class="setup-steps">
-                    <div class="step">
-                        <span class="step-number">1</span>
-                        <p>Save this number to your contacts: <strong>+34 644 51 95 23</strong></p>
-                    </div>
-                    <div class="step">
-                        <span class="step-number">2</span>
-                        <p>Send this message on WhatsApp: <strong>"I allow callmebot to send me messages"</strong></p>
-                    </div>
-                    <div class="step">
-                        <span class="step-number">3</span>
-                        <p>Enter the API key you receive:</p>
-                        <input type="text" id="whatsapp-apikey" placeholder="Enter API key">
-                    </div>
-                    <div class="step">
-                        <span class="step-number">4</span>
-                        <p>Enter your WhatsApp number (with country code):</p>
-                        <input type="tel" id="whatsapp-phone" placeholder="e.g., 919876543210">
-                    </div>
-                </div>
-
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" id="cancel-whatsapp">Cancel</button>
-                    <button class="btn btn-primary" id="save-whatsapp">Save WhatsApp Settings</button>
                 </div>
             </div>
         </div>
