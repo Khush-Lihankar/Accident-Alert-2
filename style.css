@@ -233,6 +233,37 @@ h1 {
     color: var(--primary);
 }
 
+.sensor .unit {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+/* Speed Display Specific */
+.speed-display {
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    border: 2px solid var(--secondary);
+}
+
+.speed-trend {
+    font-size: 12px;
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+.max-speed {
+    margin-top: 5px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.max-speed span {
+    color: var(--warning);
+    font-weight: bold;
+}
+
 /* Progress Bar */
 .progress-container {
     margin-top: 20px;
@@ -502,7 +533,7 @@ input[type="checkbox"] {
     font-size: 14px;
 }
 
-.location-info {
+.location-info, .speed-info {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -514,10 +545,16 @@ input[type="checkbox"] {
     border-radius: 8px;
 }
 
+.speed-info {
+    margin-top: 10px;
+    background: rgba(0, 0, 0, 0.4);
+}
+
 .countdown-actions {
     display: flex;
     flex-direction: column;
     gap: 15px;
+    margin-top: 20px;
 }
 
 .btn-cancel {
